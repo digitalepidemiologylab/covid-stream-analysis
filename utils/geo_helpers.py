@@ -8,7 +8,7 @@ import shapely
 
 logger = logging.getLogger(__name__)
 
-def load_map_data(level='country', limit_by_countries=None):
+def load_map_data():
     current_path = os.path.basename(os.path.abspath(__file__))
     geo_data_folder = os.path.abspath(os.path.join(current_path, '..', 'geodata'))
     map_data_path = os.path.join(geo_data_folder, 'ne_10m_admin_0_countries.shp')
@@ -53,11 +53,9 @@ def load_map_data(level='country', limit_by_countries=None):
     df = df.append(suriname)
     # drop all other states that have an ivalid ISO code
     df = df[df['ISO_A2'] != '-99']
-
     return df
 
 def convert_to_polygon(s):
     for i, _s in enumerate(s):
         s[i] = [float(_s[0]), float(_s[1])]
     return shapely.geometry.Polygon(s)
-

@@ -13,7 +13,6 @@ from tqdm import tqdm
 import logging
 import joblib
 import multiprocessing
-import pickle
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
 logger = logging.getLogger(__name__)
