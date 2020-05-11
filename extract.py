@@ -32,7 +32,8 @@ def get_file_names_by_hour():
     return f_names_by_hour
 
 def get_matched_keywords(text):
-    return [i for i, keyword in enumerate(KEYWORDS) if keyword in text]
+    text = text.lower()
+    return [i for i, keyword in enumerate(KEYWORDS) if keyword.lower() in text]
 
 def get_geo_info(tweet, map_data, gc):
     """ 
