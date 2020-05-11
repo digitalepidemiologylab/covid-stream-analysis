@@ -180,7 +180,7 @@ def write_parquet_file(output_file, interaction_counts):
             tweet = {**tweet, **interaction_counts[tweet['id']]}
             df.append(tweet)
     filename = os.path.basename(output_file).split('.jsonl')[0]
-    f_out = os.path.join(OUTPUT_DIR, f'crowdbreaks_stream_{filename}.parquet.gz')
+    f_out = os.path.join(OUTPUT_DIR, f'covid_stream_{filename}.parquet.gz')
     df = pd.DataFrame(df)
     df.to_parquet(f_out, compression='gzip') 
     # delete old file
