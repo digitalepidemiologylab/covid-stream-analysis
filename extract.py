@@ -192,20 +192,26 @@ def main():
     # set up geocode
     gc = Geocode()
     gc.prepare()
+
+    # make sure map data is downloaded
     load_map_data()
 
+    # set up parallel
     f_names_by_hour = get_file_names_by_hour()
     num_cpus = max(multiprocessing.cpu_count() - 1, 1)
     parallel = joblib.Parallel(n_jobs=num_cpus)
 
+    # extract fields and store write to intermediary jonsl files
     logger.info('Extract fields from tweets...')
     process_fn_delayed = joblib.delayed(process_files_by_hour)
     res = parallel((process_fn_delayed(key, f_names) for key, f_names in tqdm(f_names_by_hour.items())))
 
+    # merge interaction data (num retweets, num quotes, num replies)
     logger.info('Merging all interaction counts...')
     interaction_counts = [dict(r[0]) for r in res]
     interaction_counts = merge_interaction_counts(interaction_counts)
 
+    # add interaction data to tweets and write compressed parquet dataframes
     logger.info('Writing parquet files...')
     output_files = [r[1] for r in res]
     write_parquet_file_delayed = joblib.delayed(write_parquet_file)
