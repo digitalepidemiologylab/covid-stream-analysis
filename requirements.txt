@@ -1,0 +1,7 @@
+pandas>=1
+tqdm
+flashtext
+joblib
+geopandas
+shapely
+pyarrow
