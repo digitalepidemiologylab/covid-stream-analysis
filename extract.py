@@ -13,17 +13,18 @@ from tqdm import tqdm
 import logging
 import joblib
 import multiprocessing
+import sys
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = 'extracted/tweets'
-OTHER_DIR = 'extracted/other'
+OUTPUT_DIR = 'data/extracted/tweets'
+OTHER_DIR = 'data/extracted/other'
 
 
 def get_file_names_by_hour():
     """Group files by hour"""
-    f_names = glob.glob('data/**/**/**/**/**')
+    f_names = glob.glob('data/raw/**/**/**/**/**')
     f_names_by_hour = defaultdict(list)
     for f_name in f_names:
         key = '_'.join(f_name.split('/')[1:5])
@@ -187,6 +188,19 @@ def write_parquet_file(output_file, interaction_counts):
     os.remove(output_file)
     return len(df)
 
+def write_used_files(f_names_by_hour):
+    f_out = os.path.join('extracted', f'.used_files.json')
+    with open(f_out, 'w') as f:
+        json.dump(f_names_by_hour, f, indent=4)
+
+def read_used_files():
+    f_path = os.path.join('extracted', f'.used_files.json')
+    if not os.path.isfile(f_path):
+        return {}
+    with open(f_path, 'r') as f:
+        used_files = json.load(f)
+    return used_files
+
 def main():
     # set up geocode
     gc = Geocode()
@@ -196,9 +210,31 @@ def main():
     load_map_data()
 
     # set up parallel
-    f_names_by_hour = get_file_names_by_hour()
+    all_f_names_by_hour = get_file_names_by_hour()
+    used_files = read_used_files()
     num_cpus = max(multiprocessing.cpu_count() - 1, 1)
     parallel = joblib.Parallel(n_jobs=num_cpus)
+
+    # check for already existing files
+    f_names_by_hour = all_f_names_by_hour
+    if len(used_files) > 0:
+        len_before = len(f_names_by_hour)
+        for key in used_files.keys():
+            if key in f_names_by_hour:
+                if set(used_files[key]) == set(f_names_by_hour[key]):
+                    # all files have been used for this key, remove it from list to be computed
+                    f_names_by_hour.pop(key)
+        len_after = len(f_names_by_hour)
+        if len_after == 0:
+            logger.info(f'Everything is up-to-date.')
+            sys.exit(0)
+        elif len_before > len_after:
+            logger.info(f'Found a total of {len_before:,} hour-keys. {len_before-len_after:,} are already present.')
+        elif len_before == len_after:
+            logger.info(f'Found a total of {len_before:,} hour-keys. All of which need to be re-computed.')
+    else:
+        logger.info('Did not find any pre-existing data')
+    __import__('pdb').set_trace()
 
     # extract fields and store write to intermediary jonsl files
     logger.info('Extract fields from tweets...')
@@ -217,6 +253,9 @@ def main():
     num_tweets = parallel((write_parquet_file_delayed(output_file, interaction_counts) for output_file in tqdm(output_files)))
     num_tweets = sum(s for s in num_tweets)
     logger.info(f'Wrote {len(output_files):,} files containing {num_tweets:,} tweets.... done!')
+
+    # write used files
+    write_used_files(all_f_names_by_hour)
 
 if __name__ == "__main__":
     main()
