@@ -35,7 +35,7 @@ class ExtractTweet():
 
     @property
     def is_reply(self):
-        return 'in_reply_to_status_id' in self.tweet
+        return self.tweet['in_reply_to_status_id'] is not None
 
     @property
     def user_id(self):

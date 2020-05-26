@@ -14,6 +14,7 @@ import logging
 import joblib
 import multiprocessing
 import sys
+from datetime import datetime
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
 logger = logging.getLogger(__name__)
@@ -21,14 +22,15 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = 'data/extracted/tweets'
 OTHER_DIR = 'data/extracted/other'
 
-
 def get_file_names_by_hour():
     """Group files by hour"""
     f_names = glob.glob('data/raw/**/**/**/**/**')
     f_names_by_hour = defaultdict(list)
     for f_name in f_names:
-        key = '_'.join(f_name.split('/')[1:5])
-        f_names_by_hour[key].append(f_name)
+        key = '_'.join(f_name.split('/')[2:6])
+        date = datetime.strptime(key, '%Y_%m_%d_%H')
+        if date >= datetime(2020, 5, 7, 0, 0, 0):
+            f_names_by_hour[key].append(f_name)
     return f_names_by_hour
 
 def get_matched_keywords(text):
@@ -181,20 +183,20 @@ def write_parquet_file(output_file, interaction_counts):
             tweet = {**tweet, **interaction_counts[tweet['id']]}
             df.append(tweet)
     filename = os.path.basename(output_file).split('.jsonl')[0]
-    f_out = os.path.join(OUTPUT_DIR, f'covid_stream_{filename}.parquet.gz')
+    f_out = os.path.join(OUTPUT_DIR, f'covid_stream_{filename}.parquet')
     df = pd.DataFrame(df)
-    df.to_parquet(f_out, compression='gzip') 
+    df.to_parquet(f_out) 
     # delete old file
     os.remove(output_file)
     return len(df)
 
 def write_used_files(f_names_by_hour):
-    f_out = os.path.join('extracted', f'.used_files.json')
+    f_out = os.path.join('data', 'extracted', f'.used_files.json')
     with open(f_out, 'w') as f:
         json.dump(f_names_by_hour, f, indent=4)
 
 def read_used_files():
-    f_path = os.path.join('extracted', f'.used_files.json')
+    f_path = os.path.join('data', 'extracted', f'.used_files.json')
     if not os.path.isfile(f_path):
         return {}
     with open(f_path, 'r') as f:
@@ -215,6 +217,12 @@ def main():
     num_cpus = max(multiprocessing.cpu_count() - 1, 1)
     parallel = joblib.Parallel(n_jobs=num_cpus)
 
+    # dirs
+    if not os.path.isdir(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+    if not os.path.isdir(OTHER_DIR):
+        os.makedirs(OTHER_DIR)
+
     # check for already existing files
     f_names_by_hour = all_f_names_by_hour
     if len(used_files) > 0:
@@ -234,7 +242,6 @@ def main():
             logger.info(f'Found a total of {len_before:,} hour-keys. All of which need to be re-computed.')
     else:
         logger.info('Did not find any pre-existing data')
-    __import__('pdb').set_trace()
 
     # extract fields and store write to intermediary jonsl files
     logger.info('Extract fields from tweets...')
@@ -255,7 +262,8 @@ def main():
     logger.info(f'Wrote {len(output_files):,} files containing {num_tweets:,} tweets.... done!')
 
     # write used files
-    write_used_files(all_f_names_by_hour)
+    if len(output_files) > 0:
+        write_used_files(all_f_names_by_hour)
 
 if __name__ == "__main__":
     main()
