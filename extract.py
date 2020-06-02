@@ -4,7 +4,9 @@ from collections import defaultdict
 import gzip
 import json
 import os
-from utils.extract_tweet import ExtractTweet
+from utils.process_tweet import ProcessTweet
+from utils.helpers import get_dtypes
+from utils.misc import file_lock
 from utils.geo_helpers import load_map_data, convert_to_polygon
 from covid_19_keywords import KEYWORDS
 from local_geocode.geocode.geocode import Geocode
@@ -15,255 +17,259 @@ import joblib
 import multiprocessing
 import sys
 from datetime import datetime
+import time
+import pickle
+import shutil
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
+
 logger = logging.getLogger(__name__)
+EXTRACT_DIR = os.path.join('data', 'extracted')
+OUTPUT_DIR = os.path.join(EXTRACT_DIR, 'tweets')
+PRELIM_DIR = os.path.join(EXTRACT_DIR, 'preliminary')
+OTHER_DIR = os.path.join(EXTRACT_DIR, 'other')
 
-OUTPUT_DIR = 'data/extracted/tweets'
-OTHER_DIR = 'data/extracted/other'
 
-def get_file_names_by_hour():
-    """Group files by hour"""
-    f_names = glob.glob('data/raw/**/**/**/**/**')
-    f_names_by_hour = defaultdict(list)
-    for f_name in f_names:
-        key = '_'.join(f_name.split('/')[2:6])
-        date = datetime.strptime(key, '%Y_%m_%d_%H')
-        if date >= datetime(2020, 5, 7, 0, 0, 0):
-            f_names_by_hour[key].append(f_name)
-    return f_names_by_hour
+manager = multiprocessing.Manager()
+# shared between all processes
+originals = manager.dict()
+retweet_counts = manager.dict()
+quote_counts = manager.dict()
+replies_counts = manager.dict()
 
-def get_matched_keywords(text):
-    text = text.lower()
-    return [i for i, keyword in enumerate(KEYWORDS) if keyword.lower() in text]
-
-def get_geo_info(tweet, map_data, gc):
-    """ 
-    Tries to infer differen types of geoenrichment from tweet
-    0) no geo enrichment could be done
-    1) coordinates: Coordinates were provided in tweet object
-    2) place_centroid: Centroid of place bounding box
-    3) user location: Infer geo-location from user location
-
-    Returns dictionary with the following keys:
-    - longitude (float)
-    - latitude (float)
-    - country_code (str)
-    - region (str)
-    - subregion (str)
-    - geo_type (int)
-
-    Regions (according to World Bank):
-    East Asia & Pacific, Latin America & Caribbean, Europe & Central Asia, South Asia,
-    Middle East & North Africa, Sub-Saharan Africa, North America, Antarctica
-
-    Subregions:
-    South-Eastern Asia, South America, Western Asia, Southern Asia, Eastern Asia, Eastern Africa,
-    Northern Africa Central America, Middle Africa, Eastern Europe, Southern Africa, Caribbean,
-    Central Asia, Northern Europe, Western Europe, Southern Europe, Western Africa, Northern America,
-    Melanesia, Antarctica, Australia and New Zealand, Polynesia, Seven seas (open ocean), Micronesia
-    """
-    def get_region_by_country_code(country_code):
-        return map_data[map_data['ISO_A2'] == country_code].iloc[0].REGION_WB
-
-    def get_subregion_by_country_code(country_code):
-        return map_data[map_data['ISO_A2'] == country_code].iloc[0].SUBREGION
-
-    def get_country_code_by_coords(longitude, latitude):
-        coordinates = shapely.geometry.point.Point(longitude, latitude)
-        within = map_data.geometry.apply(lambda p: coordinates.within(p))
-        if sum(within) > 0:
-            return map_data[within].iloc[0].ISO_A2
-        else:
-            logger.warning(f'Could not match country for coordinates {longitude}, {latitude}')
-            return None
-
-    geo_obj = {
-            'longitude': None,
-            'latitude': None,
-            'country_code': None,
-            'region': None,
-            'subregion': None,
-            'geo_type': 0
-            }
-
-    if tweet.has_coordinates:
-        # try to get geo data from coordinates (<0.1% of tweets)
-        geo_obj['longitude'] = tweet.tweet['coordinates']['coordinates'][0]
-        geo_obj['latitude'] = tweet.tweet['coordinates']['coordinates'][1]
-        geo_obj['country_code'] = get_country_code_by_coords(geo_obj['longitude'], geo_obj['latitude'])
-        geo_obj['geo_type'] = 1
-    elif tweet.has_place_bounding_box:
-        # try to get geo data from place (roughly 1% of tweets)
-        p = convert_to_polygon(tweet.tweet['place']['bounding_box']['coordinates'][0])
-        geo_obj['longitude'] = p.centroid.x
-        geo_obj['latitude'] = p.centroid.y
-        country_code = tweet.tweet['place']['country_code']
-        if country_code == '':
-            # sometimes places don't contain country codes, try to resolve from coordinates
-            country_code = get_country_code_by_coords(geo_obj['longitude'], geo_obj['latitude'])
-        geo_obj['country_code'] = country_code
-        geo_obj['geo_type'] = 2
-    else:
-        # try to parse user location
-        locations = gc.decode(tweet.tweet['user']['location'])
-        if len(locations) > 0:
-            geo_obj['longitude'] = locations[0]['longitude']
-            geo_obj['latitude'] = locations[0]['latitude']
-            country_code = locations[0]['country_code']
-            if country_code == '':
-                # sometimes country code is missing (e.g. disputed areas), try to resolve from geodata
-                country_code = get_country_code_by_coords(geo_obj['longitude'], geo_obj['latitude'])
-            geo_obj['country_code'] = country_code
-            geo_obj['geo_type'] = 3
-    if geo_obj['country_code']:
-        # retrieve region info
-        if geo_obj['country_code'] in map_data.ISO_A2.tolist():
-            geo_obj['region'] = get_region_by_country_code(geo_obj['country_code'])
-            geo_obj['subregion'] = get_subregion_by_country_code(geo_obj['country_code'])
-        else:
-            logger.warning(f'Unknown country_code {geo_obj["country_code"]}')
-    return geo_obj
-
-def process_files_by_hour(key, f_names):
-    """Process files from same hour"""
-    tweet_interaction_counts = defaultdict(lambda: {'num_quotes': 0, 'num_retweets': 0, 'num_replies': 0})
-    gc = Geocode()
-    gc.init()
-    map_data = load_map_data()
-    f_out_other_path = os.path.join(OTHER_DIR, f'{key}.jsonl')
-    f_out_path = os.path.join(OUTPUT_DIR, f'{key}.jsonl')
-    for f_name in f_names:
-        if f_name.endswith('.gz'):
-            f = gzip.open(f_name, 'r')
-        else:
-            # older files were not gzipped
-            f = open(f_name, 'r')
-        for i, line in enumerate(f):
-            tweet = json.loads(line)
-            if not 'id' in tweet:
-                # is not tweet, dump to differnt file for later inspection
-                with open(f_out_other_path, 'a') as f_out:
-                    f_out.write(json.dumps(tweet) + '\n')
-                continue
-            tweet = ExtractTweet(tweet)
-            if tweet.is_retweet:
-                tweet_interaction_counts[tweet.retweeted_status_id]['num_retweets'] += 1
-                continue
-            if tweet.has_quoted_status:
-                tweet_interaction_counts[tweet.quoted_status_id]['num_quotes'] += 1
-                continue
-            if tweet.is_reply:
-                tweet_interaction_counts[tweet.replied_status_id]['num_replies'] += 1
-            extracted = tweet.extract_fields()
-            extracted['matched_keywords'] = get_matched_keywords(tweet.text)
-            geo_obj = get_geo_info(tweet, map_data, gc)
-            extracted = {**extracted, **geo_obj}
-            # write to file
-            with open(f_out_path, 'a') as f_out:
-                f_out.write(json.dumps(extracted) + '\n')
-        f.close()
-    return tweet_interaction_counts, f_out_path
-
-def merge_interaction_counts(res):
-    """Merges all interaction from different days to a final dict of tweet_id->num_replies, num_quotes, num_retweets"""
-    tweet_interaction_counts = defaultdict(lambda: {'num_quotes': 0, 'num_retweets': 0, 'num_replies': 0})
-    for r in tqdm(res):
-        for k, v in r.items():
-            for _type in v.keys():
-                tweet_interaction_counts[k][_type] += v[_type]
-    return tweet_interaction_counts
-
-def write_parquet_file(output_file, interaction_counts):
-    """Reads jsonl files, adds interaction counts and writes parquet files"""
-    df = []
-    with open(output_file, 'r') as f:
-        for line in f:
-            tweet = json.loads(line)
-            tweet = {**tweet, **interaction_counts[tweet['id']]}
-            df.append(tweet)
-    filename = os.path.basename(output_file).split('.jsonl')[0]
-    f_out = os.path.join(OUTPUT_DIR, f'covid_stream_{filename}.parquet')
-    df = pd.DataFrame(df)
-    df.to_parquet(f_out) 
-    # delete old file
-    os.remove(output_file)
-    return len(df)
-
-def write_used_files(f_names_by_hour):
-    f_out = os.path.join('data', 'extracted', f'.used_files.json')
-    with open(f_out, 'w') as f:
-        json.dump(f_names_by_hour, f, indent=4)
 
 def read_used_files():
-    f_path = os.path.join('data', 'extracted', f'.used_files.json')
+    f_path = os.path.join(EXTRACT_DIR, f'.used_data')
     if not os.path.isfile(f_path):
         return {}
     with open(f_path, 'r') as f:
         used_files = json.load(f)
     return used_files
 
-def main():
-    # set up geocode
+def write_used_files(data_files):
+    f_path = os.path.join(EXTRACT_DIR, f'.used_data')
+    with open(f_path, 'w') as f:
+        json.dump(data_files, f, indent=4)
+
+def generate_file_list(by='day'):
+    """Group files by interval"""
+    f_names = glob.glob('data/raw/**/**/**/**/**')
+    f_names_by_interval = defaultdict(list)
+    for f_name in f_names:
+        if by == 'day':
+            key = '_'.join(f_name.split('/')[2:5])
+            date = datetime.strptime(key, '%Y_%m_%d')
+        elif by == 'hour':
+            key = '_'.join(f_name.split('/')[2:6])
+            date = datetime.strptime(key, '%Y_%m_%d_%H')
+        if date >= datetime(2020, 5, 7, 0, 0, 0):
+            f_names_by_interval[key].append(f_name)
+    return f_names_by_interval
+
+
+def write_parquet_file(f_path_intermediary, interaction_counts):
+    # read from json lines
+    dtypes = get_dtypes()
+    key = f_path_intermediary.split('/')[-1].split('.jsonl')[0]
+    df = pd.read_json(f_path_intermediary, lines=True, dtype=dtypes)
+    if len(df) > 0:
+        # drop duplicates
+        df.drop_duplicates(subset=['id'], inplace=True)
+        # read_json converts null to stringified 'None', convert manually
+        for col in [c for c, v in dtypes.items() if v == str]:
+            df.loc[df[col] == 'None', col] = None
+        # merge with interaction counts
+        df = df.merge(interaction_counts, on='id', how='left')
+        for col in ['num_replies', 'num_quotes', 'num_retweets']:
+            df[col] = df[col].fillna(0).astype(int)
+        # convert columns to datetime
+        for datetime_col in ['created_at', 'user.created_at']:
+            df[datetime_col] = pd.to_datetime(df[datetime_col])
+        # convert to categorical types
+        for col in ['country_code', 'region', 'subregion', 'geo_type', 'lang']:
+            df[col] = df[col].astype('category')
+        # sort by created_at
+        df.sort_values('created_at', inplace=True, ascending=True)
+        df.reset_index(drop=True, inplace=True)
+        # write parquet file
+        f_out = os.path.join(OUTPUT_DIR, f'covid_stream_{key}.parquet')
+        df.to_parquet(f_out)
+    return len(df)
+
+def merge_interaction_counts():
+    interaction_counts = pd.DataFrame({
+        'num_quotes': pd.Series(dict(quote_counts)),
+        'num_replies': pd.Series(dict(replies_counts)),
+        'num_retweets': pd.Series(dict(retweet_counts))})
+    interaction_counts.index.name = 'id'
+    for col in ['num_quotes', 'num_replies', 'num_retweets']:
+        interaction_counts[col] = interaction_counts[col].fillna(0).astype(int)
+    interaction_counts.reset_index(inplace=True)
+    return interaction_counts
+
+def dump_interaction_counts(interaction_counts):
+    """Cache interaction counts in case something goes wrong"""
+    now = datetime.now().isoformat()
+    f_name = os.path.join('/', 'tmp', f'interaction_counts_{now}.pkl')
+    logger.info(f'Writing interaction counts to temporary file {f_name}...')
+    with open(f_name, 'wb') as f:
+        pickle.dump(dict(interaction_counts), f)
+    return f_name
+
+def main(no_parallel=True, interval='day'):
+    def extract_tweets(key, f_names, interval, extract_subtweets=True):
+        gc = Geocode()
+        gc.init()
+        map_data = load_map_data()
+        f_out_other_path = os.path.join(OTHER_DIR, f'{key}.jsonl')
+        def write_to_file(obj):
+            """Write to coresponding preliminary jsonl file"""
+            if interval == 'day':
+                created_at = obj['created_at'][:10]
+            else:
+                # by hour
+                created_at = obj['created_at'][:13]
+                created_at = created_at.replace('T', '-')
+            f_path = os.path.join(PRELIM_DIR, f'{created_at}.jsonl')
+            with open(f_path, 'a') as f_out:
+                with file_lock(f_out):
+                    f_out.write(json.dumps(obj) + '\n')
+        for f_name in f_names:
+            if f_name.endswith('.gz'):
+                f = gzip.open(f_name, 'r')
+            else:
+                f = open(f_name, 'r')
+            for i, line in enumerate(f):
+                if len(line) <= 1:
+                    continue
+                try:
+                    tweet = json.loads(line)
+                except json.decoder.JSONDecodeError:
+                    # some files use single quotation, for this we need to use ast.literal_eval
+                    tweet = ast.literal_eval(line)
+                except:
+                    # sometimes parsing completely fails
+                    logger.error('Error parsing line:')
+                    logger.error(line)
+                    continue
+                if 'id' not in tweet:
+                    # is not tweet, dump to differnt file for later inspection
+                    with open(f_out_other_path, 'a') as f_out:
+                        f_out.write(json.dumps(tweet) + '\n')
+                    continue
+                tweet_id = tweet['id_str']
+                if tweet_id in originals:
+                    # skip duplicates
+                    continue
+                # create new entry in interaction counts
+                originals[tweet_id] = True
+                # extract tweet
+                pt = ProcessTweet(tweet=tweet, map_data=map_data, gc=gc)
+                extracted_tweet = pt.extract()
+                write_to_file(extracted_tweet)
+                # add interaction counts
+                if pt.is_reply:
+                    if pt.replied_status_id in replies_counts:
+                        replies_counts[pt.replied_status_id] += 1
+                    else:
+                        replies_counts[pt.replied_status_id] = 1
+                if pt.has_quote:
+                    pt = ProcessTweet(tweet=tweet['quoted_status'], map_data=map_data, gc=gc)
+                    if pt.id in quote_counts:
+                        quote_counts[pt.id] += 1
+                    else:
+                        quote_counts[pt.id] = 1
+                    if not pt.id in originals:
+                        # extract original status
+                        originals[pt.id] = True
+                        extracted_tweet = pt.extract()
+                        write_to_file(extracted_tweet)
+                if pt.is_retweet:
+                    pt = ProcessTweet(tweet=tweet['retweeted_status'], map_data=map_data, gc=gc)
+                    if pt.id in retweet_counts:
+                        retweet_counts[pt.id] += 1
+                    else:
+                        retweet_counts[pt.id] = 1
+                    if pt.id not in originals:
+                        # extract original status
+                        originals[pt.id] = True
+                        extracted_tweet = pt.extract()
+                        write_to_file(extracted_tweet)
+            f.close()
+
+    # setup
+    s_time = time.time()
+    map_data = load_map_data()
     gc = Geocode()
     gc.prepare()
 
-    # make sure map data is downloaded
-    load_map_data()
+    # create dirs
+    for _dir in [OUTPUT_DIR, OTHER_DIR, PRELIM_DIR]:
+        if not os.path.isdir(_dir):
+            os.makedirs(_dir)
 
     # set up parallel
-    all_f_names_by_hour = get_file_names_by_hour()
-    used_files = read_used_files()
-    num_cpus = max(multiprocessing.cpu_count() - 1, 1)
-    parallel = joblib.Parallel(n_jobs=num_cpus)
-
-    # dirs
-    if not os.path.isdir(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR)
-    if not os.path.isdir(OTHER_DIR):
-        os.makedirs(OTHER_DIR)
+    if no_parallel:
+        num_cores = 1
+    else:
+        num_cores = max(multiprocessing.cpu_count() - 1, 1)
+    logger.info(f'Using {num_cores} CPUs to parse data...')
+    parallel = joblib.Parallel(n_jobs=num_cores)
 
     # check for already existing files
-    f_names_by_hour = all_f_names_by_hour
+    all_f_names = generate_file_list(by=interval)
+    used_files = read_used_files()
+    f_names = all_f_names
     if len(used_files) > 0:
-        len_before = len(f_names_by_hour)
+        len_before = len(f_names)
         for key in used_files.keys():
-            if key in f_names_by_hour:
-                if set(used_files[key]) == set(f_names_by_hour[key]):
+            if key in f_names:
+                if set(used_files[key]) == set(f_names[key]):
                     # all files have been used for this key, remove it from list to be computed
-                    f_names_by_hour.pop(key)
-        len_after = len(f_names_by_hour)
+                    f_names.pop(key)
+        len_after = len(f_names)
         if len_after == 0:
             logger.info(f'Everything is up-to-date.')
             sys.exit(0)
         elif len_before > len_after:
-            logger.info(f'Found a total of {len_before:,} hour-keys. {len_before-len_after:,} are already present.')
+            logger.info(f'Found a total of {len_before:,} interval-keys. {len_before-len_after:,} are already present.')
         elif len_before == len_after:
-            logger.info(f'Found a total of {len_before:,} hour-keys. All of which need to be re-computed.')
+            logger.info(f'Found a total of {len_before:,} interval-keys. All of which need to be re-computed.')
     else:
         logger.info('Did not find any pre-existing data')
 
-    # extract fields and store write to intermediary jonsl files
-    logger.info('Extract fields from tweets...')
-    process_fn_delayed = joblib.delayed(process_files_by_hour)
-    res = parallel((process_fn_delayed(key, f_names) for key, f_names in tqdm(f_names_by_hour.items())))
-
-    # merge interaction data (num retweets, num quotes, num replies)
+    for k, v in f_names.items():
+        f_names = {}
+        f_names[k] = [v[0]]
+    # run
+    logger.info('Extract tweets...')
+    extract_tweets_delayed = joblib.delayed(extract_tweets)
+    parallel(extract_tweets_delayed(key, f_names, interval) for key, f_names in tqdm(f_names.items()))
     logger.info('Merging all interaction counts...')
-    interaction_counts = [dict(r[0]) for r in res]
-    interaction_counts = merge_interaction_counts(interaction_counts)
+    interaction_counts = merge_interaction_counts()
+    interaction_counts_fname = dump_interaction_counts(interaction_counts)
 
     # add interaction data to tweets and write compressed parquet dataframes
     logger.info('Writing parquet files...')
-    output_files = [r[1] for r in res]
     write_parquet_file_delayed = joblib.delayed(write_parquet_file)
-    num_tweets = parallel((write_parquet_file_delayed(output_file, interaction_counts) for output_file in tqdm(output_files)))
-    num_tweets = sum(s for s in num_tweets)
-    logger.info(f'Wrote {len(output_files):,} files containing {num_tweets:,} tweets.... done!')
+    f_names_intermediary = glob.glob(os.path.join(PRELIM_DIR, '*.jsonl'))
+    res = parallel((write_parquet_file_delayed(key, interaction_counts) for key in tqdm(f_names_intermediary)))
+    num_tweets = sum(res)
+    logger.info(f'Collected a total of {num_tweets:,} tweets in {len(f_names_intermediary):,} parquet files')
 
     # write used files
-    if len(output_files) > 0:
-        write_used_files(all_f_names_by_hour)
+    logger.info('Writing used files...')
+    write_used_files(all_f_names)
+
+    # cleanup
+    if os.path.isdir(PRELIM_DIR):
+        logger.info('Cleaning up intermediary files...')
+        shutil.rmtree(PRELIM_DIR)
+    if os.path.isfile(interaction_counts_fname):
+        logger.info('Cleaning up counts file...')
+        os.remove(interaction_counts_fname)
+    e_time = time.time()
+    logger.info(f'Finished in {(e_time-s_time)/60:.1f} min')
+
 
 if __name__ == "__main__":
     main()
