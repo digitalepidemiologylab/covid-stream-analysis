@@ -27,7 +27,7 @@ def get_dtypes(usecols=None):
             "is_retweet": bool,
             "has_quote": bool,
             "is_reply": bool,
-            "matched_keywords": bool,
+            "matched_keywords": list,
             "longitude": float,
             "latitude": float,
             "country_code": str,

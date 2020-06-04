@@ -115,8 +115,8 @@ def dump_interaction_counts(interaction_counts):
         pickle.dump(dict(interaction_counts), f)
     return f_name
 
-def main(no_parallel=True, interval='day'):
-    def extract_tweets(key, f_names, interval, extract_subtweets=True):
+def main(no_parallel=False, interval='hour', extract_retweets=False, extract_quotes=True):
+    def extract_tweets(key, f_names, interval):
         gc = Geocode()
         gc.init()
         map_data = load_map_data()
@@ -160,25 +160,31 @@ def main(no_parallel=True, interval='day'):
                 if tweet_id in originals:
                     # skip duplicates
                     continue
-                # create new entry in interaction counts
+                # flag tweet ID as "used"
                 originals[tweet_id] = True
-                # extract tweet
+                # extract top-level tweet
                 pt = ProcessTweet(tweet=tweet, map_data=map_data, gc=gc)
-                extracted_tweet = pt.extract()
-                write_to_file(extracted_tweet)
+                if ((extract_retweets and pt.is_retweet)                              # extract retweets (optional)
+                        or (extract_quotes and pt.has_quote and not pt.is_retweet)    # extract quotes if not retweet of a quote (optional)
+                        or (not pt.is_retweet and not pt.has_quote)):                 # always extract original tweets which are neither retweets nor quotes
+                    extracted_tweet = pt.extract()
+                    write_to_file(extracted_tweet)
                 # add interaction counts
                 if pt.is_reply:
                     if pt.replied_status_id in replies_counts:
                         replies_counts[pt.replied_status_id] += 1
                     else:
                         replies_counts[pt.replied_status_id] = 1
+                # extract subtweets
                 if pt.has_quote:
                     pt = ProcessTweet(tweet=tweet['quoted_status'], map_data=map_data, gc=gc)
-                    if pt.id in quote_counts:
-                        quote_counts[pt.id] += 1
-                    else:
-                        quote_counts[pt.id] = 1
-                    if not pt.id in originals:
+                    if not pt.is_retweet:
+                        # don't count retweeted 
+                        if pt.id in quote_counts:
+                            quote_counts[pt.id] += 1
+                        else:
+                            quote_counts[pt.id] = 1
+                    if pt.id not in originals:
                         # extract original status
                         originals[pt.id] = True
                         extracted_tweet = pt.extract()
@@ -237,9 +243,6 @@ def main(no_parallel=True, interval='day'):
     else:
         logger.info('Did not find any pre-existing data')
 
-    for k, v in f_names.items():
-        f_names = {}
-        f_names[k] = [v[0]]
     # run
     logger.info('Extract tweets...')
     extract_tweets_delayed = joblib.delayed(extract_tweets)
@@ -261,12 +264,12 @@ def main(no_parallel=True, interval='day'):
     write_used_files(all_f_names)
 
     # cleanup
-    if os.path.isdir(PRELIM_DIR):
-        logger.info('Cleaning up intermediary files...')
-        shutil.rmtree(PRELIM_DIR)
-    if os.path.isfile(interaction_counts_fname):
-        logger.info('Cleaning up counts file...')
-        os.remove(interaction_counts_fname)
+    # if os.path.isdir(PRELIM_DIR):
+    #     logger.info('Cleaning up intermediary files...')
+    #     shutil.rmtree(PRELIM_DIR)
+    # if os.path.isfile(interaction_counts_fname):
+    #     logger.info('Cleaning up counts file...')
+    #     os.remove(interaction_counts_fname)
     e_time = time.time()
     logger.info(f'Finished in {(e_time-s_time)/60:.1f} min')
 
