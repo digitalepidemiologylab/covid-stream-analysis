@@ -1,4 +1,3 @@
-import pandas as pd
 import joblib
 import glob
 import logging
@@ -11,8 +10,8 @@ import json
 from utils.misc import file_lock
 from utils.process_tweet import ProcessTweet
 import shutil
-from collections import defaultdict
 from tqdm import tqdm
+import numpy as np
 
 # logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
@@ -22,6 +21,7 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = os.path.join('data', 'user_retweet_dump')
 PRELIM_DIR = os.path.join(OUTPUT_DIR, 'preliminary')
 FINAL_OUTPUT_FILE = os.path.join(OUTPUT_DIR, 'retweet_user_dump.jsonl')
+TWEET_ID_LIST = os.path.join('data', 'tweet_ids_annotated_users.npy')
 
 # dictionary of tweet IDs which have already been processed (shared between processes)
 manager = multiprocessing.Manager()
@@ -47,6 +47,8 @@ def extract_user_retweet_info(f_name):
         with open(f_path, 'a') as f_out:
             with file_lock(f_out):
                 f_out.write(json.dumps(obj) + '\n')
+    # load pre-defined tweet ID list
+    predefined_tweet_ids = np.load(TWEET_ID_LIST, allow_pickle=True)
     if f_name.endswith('.gz'):
         f = gzip.open(f_name, 'r')
     else:
@@ -59,14 +61,16 @@ def extract_user_retweet_info(f_name):
         # only consider retweets
         if not 'retweeted_status' in tweet:
             continue
-        tweet_id = tweet['id_str']
+        pt = ProcessTweet(tweet=tweet)
+        # ignore retweetd tweets which are not part of the list
+        if not pt.retweeted_status_id in predefined_tweet_ids:
+            continue
         # ignore duplicates (sometimes the stream collects the same tweets multiple times)
-        if tweet_id in used_ids:
+        if pt.id in used_ids:
             continue
         # flag tweet ID as "used"
-        used_ids[tweet_id] = True
+        used_ids[pt.id] = True
         # extract user info
-        pt = ProcessTweet(tweet=tweet)
         user_obj = pt.extract_user()
         write_to_file(pt.retweeted_status_id, user_obj)
     f.close()
