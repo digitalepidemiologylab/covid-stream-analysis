@@ -165,6 +165,8 @@ class ProcessTweet():
         # replace HTML codes for new line characters
         s = s.replace('&#13;', '').replace('&#10;', '')
         s = self.html_parser.unescape(s)
+        # remove duplicate whitespaces
+        s = ' '.join(s.split())
         # removes all other control characters and the NULL byte (which causes issues when parsing with pandas)
         return "".join(ch for ch in s if unicodedata.category(ch)[0] != 'C')
 
@@ -280,6 +282,20 @@ class ProcessTweet():
         token_count = len([token for token in doc if token.is_alpha and not token.is_stop])
         return token_count
 
+    def extract_user(self):
+        return {
+                'user.id': self.user_id,
+                'user.screen_name': self.tweet['user']['screen_name'],
+                'user.name': self.tweet['user']['name'],
+                'user.description': self.normalize_str(self.tweet['user']['description']),
+                'user.timezone': self.user_timezone,
+                'user.location': self.tweet['user']['location'],
+                'user.num_followers': self.tweet['user']['followers_count'],
+                'user.num_following': self.tweet['user']['friends_count'],
+                'user.created_at': self.convert_to_iso_time(self.tweet['user']['created_at']),
+                'user.statuses_count': self.tweet['user']['statuses_count'],
+                'user.is_verified': self.is_verified
+                }
 
     # private methods
 
