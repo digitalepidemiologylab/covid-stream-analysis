@@ -78,9 +78,14 @@ def write_parquet_file(f_path_intermediary, interaction_counts):
         for col in [c for c, v in dtypes.items() if v == str]:
             df.loc[df[col] == 'None', col] = None
         # merge with interaction counts
-        df = df.merge(interaction_counts, on='id', how='left')
-        for col in ['num_replies', 'num_quotes', 'num_retweets']:
-            df[col] = df[col].fillna(0).astype(int)
+        if len(interaction_counts) > 0:
+            df = df.merge(interaction_counts, on='id', how='left')
+            for col in ['num_replies', 'num_quotes', 'num_retweets']:
+                df[col] = df[col].fillna(0).astype(int)
+        else:
+            # set default values
+            for col in ['num_replies', 'num_quotes', 'num_retweets']:
+                df[col] = 0
         # convert columns to datetime
         for datetime_col in ['created_at', 'user.created_at']:
             df[datetime_col] = pd.to_datetime(df[datetime_col])
@@ -177,28 +182,28 @@ def main(no_parallel=False, interval='hour', extract_retweets=False, extract_quo
                         replies_counts[pt.replied_status_id] = 1
                 # extract subtweets
                 if pt.has_quote:
-                    pt = ProcessTweet(tweet=tweet['quoted_status'], map_data=map_data, gc=gc)
+                    pt_quote = ProcessTweet(tweet=tweet['quoted_status'], map_data=map_data, gc=gc)
                     if not pt.is_retweet:
-                        # don't count retweeted 
-                        if pt.id in quote_counts:
-                            quote_counts[pt.id] += 1
+                        # don't count retweeted quotes
+                        if pt_quote.id in quote_counts:
+                            quote_counts[pt_quote.id] += 1
                         else:
-                            quote_counts[pt.id] = 1
-                    if pt.id not in originals:
+                            quote_counts[pt_quote.id] = 1
+                    if pt_quote.id not in originals:
                         # extract original status
-                        originals[pt.id] = True
-                        extracted_tweet = pt.extract()
+                        originals[pt_quote.id] = True
+                        extracted_tweet = pt_quote.extract()
                         write_to_file(extracted_tweet)
                 if pt.is_retweet:
-                    pt = ProcessTweet(tweet=tweet['retweeted_status'], map_data=map_data, gc=gc)
-                    if pt.id in retweet_counts:
-                        retweet_counts[pt.id] += 1
+                    pt_retweet = ProcessTweet(tweet=tweet['retweeted_status'], map_data=map_data, gc=gc)
+                    if pt_retweet.id in retweet_counts:
+                        retweet_counts[pt_retweet.id] += 1
                     else:
-                        retweet_counts[pt.id] = 1
-                    if pt.id not in originals:
+                        retweet_counts[pt_retweet.id] = 1
+                    if pt_retweet.id not in originals:
                         # extract original status
-                        originals[pt.id] = True
-                        extracted_tweet = pt.extract()
+                        originals[pt_retweet.id] = True
+                        extracted_tweet = pt_retweet.extract()
                         write_to_file(extracted_tweet)
             f.close()
 
