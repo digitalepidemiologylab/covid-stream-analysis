@@ -36,7 +36,6 @@ originals = manager.dict()
 retweet_counts = manager.dict()
 quote_counts = manager.dict()
 replies_counts = manager.dict()
-manager_namespace = manager.Namespace()
 
 ray.init()
 
