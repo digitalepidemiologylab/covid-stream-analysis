@@ -5,9 +5,11 @@ import glob
 import os
 import joblib
 import multiprocessing
+from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
+
 
 
 def get_parsed_data(usecols=None, s_date=None, e_date=None, read_in_parallel=True, num_files=None):
@@ -30,7 +32,7 @@ def get_parsed_data(usecols=None, s_date=None, e_date=None, read_in_parallel=Tru
 
     def get_f_names(s_date=s_date, e_date=e_date):
         data_folder = get_data_folder()
-        f_path = os.path.join(data_folder, '1_parsed', 'tweets', '*.parquet')
+        f_path = os.path.join(data_folder, '*.parquet')
         f_names = glob.glob(f_path)
         if s_date is not None or e_date is not None:
             f_names_dates = {f_name: parse_date_from_f_name(f_name) for f_name in f_names}
@@ -58,6 +60,9 @@ def get_parsed_data(usecols=None, s_date=None, e_date=None, read_in_parallel=Tru
         n_jobs = max(multiprocessing.cpu_count() - 1, 1)
     else:
         n_jobs = 1 
+    if len(f_names) == 0:
+        logger.info('No data files found')
+        return pd.DataFrame()
     parallel = joblib.Parallel(n_jobs=n_jobs, prefer='threads')
     read_data_delayed = joblib.delayed(read_data)
     # load data
@@ -70,6 +75,10 @@ def get_parsed_data(usecols=None, s_date=None, e_date=None, read_in_parallel=Tru
         if col in df: 
             df[col] = df[col].astype('category')
     return df
+
+def get_data_folder():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.abspath(os.path.join(current_dir, '..', 'data', 'extracted', 'tweets'))
 
 def get_dtypes(usecols=None):
     """Gets dtypes for columns"""
