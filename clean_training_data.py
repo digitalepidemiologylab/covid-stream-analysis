@@ -2,12 +2,10 @@ import pandas as pd
 from html.parser import HTMLParser
 import unicodedata
 import re
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 import ast
 import logging
 import os
-import en_core_web_sm
-import html
 import warnings
 import sklearn.model_selection
 
