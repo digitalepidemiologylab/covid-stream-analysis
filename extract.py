@@ -23,6 +23,7 @@ import shutil
 import ray
 
 
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
 logger = logging.getLogger(__name__)
 EXTRACT_DIR = os.path.join('data', 'extracted')
 OUTPUT_DIR = os.path.join(EXTRACT_DIR, 'tweets')
