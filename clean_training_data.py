@@ -1,5 +1,5 @@
 import pandas as pd
-from html.parser import HTMLParser
+import html
 import unicodedata
 import re
 from bs4 import BeautifulSoup
@@ -14,7 +14,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
 
 # compile regexes
 control_char_regex = r'[\r\n\t]+'
-html_parser = HTMLParser()
 transl_table = dict([(ord(x), ord(y)) for x, y in zip( u"‘’´“”–-",  u"'''\"\"--")])
 username_regex = re.compile(r'(^|[^@\w])@(\w{1,15})\b')
 url_regex = re.compile(r'((www\.[^\s]+)|(https?://[^\s]+)|(http?://[^\s]+))')
@@ -118,6 +117,7 @@ def main(seed=42):
     logger.info('Clean bio text...')
     df = df[df.bio.apply(lambda s: isinstance(s, str))]
     df.loc[:, 'text'] = df.bio.apply(preprocess)
+    df = df.drop_duplicates(subset=['text'])
 
     # convert types labels
     logger.info('Sanitize label names...')
@@ -137,6 +137,7 @@ def main(seed=42):
     # clear nan labels
     logger.info('Clean labels...')
     df = df.dropna(subset=['majority_vote_category', 'majority_vote_type'])
+
 
     train, test = sklearn.model_selection.train_test_split(df, test_size=.2, random_state=seed, shuffle=True)
     logger.info(f'Writing train/test data...')
@@ -166,7 +167,7 @@ def standardize_text(text):
     5) Removes duplicate white spaces
     """
     # escape HTML symbols
-    text = html_parser.unescape(text)
+    text = html.unescape(text)
     # standardize punctuation
     text = text.translate(transl_table)
     text = text.replace('…', '...')
@@ -188,11 +189,6 @@ def de_emojize(text):
         emoji = bytes(emoji_bytes).decode()
         soup.span.replace_with(emoji)
     return soup.text
-
-def standardize_text(text):
-    """Replace some non-standard characters such as ” or ’ with standard characters. """
-    text = text.translate(transl_table)
-    return text
 
 def anonymize_text(text, url_filler='<url>', user_filler='@user', email_filler='@email'):
     text = replace_urls(text, filler=url_filler)

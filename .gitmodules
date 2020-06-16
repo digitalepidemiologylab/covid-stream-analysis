@@ -1,3 +1,6 @@
 [submodule "local_geocode"]
 	path = local_geocode
 	url = git@github.com:mar-muel/local-geocode.git
+[submodule "text_classification"]
+	path = text_classification
+	url = git@github.com:crowdbreaks/text-classification.git
