@@ -28,6 +28,15 @@ convert_types = {
         '': None
         }
 
+convert_types_merged = {
+        'Individual:Male': 'individual',
+        'Institution': 'institution',
+        'Individual: Other gender or unclear': 'individual',
+        'Unclear': 'unclear',
+        'Individual:Female': 'individual',
+        '': None
+        }
+
 convert_categories = {
         'Other': 'other',
         'Media: News': 'media_news',
@@ -119,10 +128,12 @@ def main(seed=42):
     df.loc[:, 'text'] = df.bio.apply(preprocess)
     df = df.drop_duplicates(subset=['text'])
 
-    # convert types labels
+    # convert types labels and add merged type
     logger.info('Sanitize label names...')
     for col in ['type1', 'type2', 'type3', 'majority_vote_type']:
-        df.loc[:, col] = df[col].apply(lambda s: convert_types[s])
+        df_col = df[col].copy()
+        df.loc[:, col] = df_col.apply(lambda s: convert_types[s])
+        df[col + '_merged'] = df_col.apply(lambda s: convert_types_merged[s])
 
     # convert category labels and add merged category
     for col in ['category1', 'category2', 'category3', 'majority_vote_category']:
