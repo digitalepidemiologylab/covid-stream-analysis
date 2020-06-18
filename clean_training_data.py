@@ -8,6 +8,7 @@ import logging
 import os
 import warnings
 import sklearn.model_selection
+import unidecode
 
 # mute beautiful soup warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
@@ -159,24 +160,23 @@ def write_df(df, f_name):
     f_out = os.path.join(input_folder, f_name)
     df.to_csv(f_out + '.csv', index=False)
     df.to_pickle(f_out + '.pkl')
+    df[['text']].to_csv(f_out+'_text_only.csv', index=False)
 
 def preprocess(text):
     # demojize
     text = de_emojize(text)
+    # separate hashtags
+    text = separate_hashtags(text)
     # standardize text
     text = standardize_text(text)
     # anonymize
     text = anonymize_text(text)
+    # replace multiple spaces with single space
+    text = ' '.join(text.split())
+    text = text.strip()
     return text
 
 def standardize_text(text):
-    """
-    1) Escape HTML
-    2) Replaces some non-standard punctuation with standard versions. 
-    3) Replace \r, \n and \t with white spaces
-    4) Removes all other control characters and the NULL byte
-    5) Removes duplicate white spaces
-    """
     # escape HTML symbols
     text = html.unescape(text)
     # standardize punctuation
@@ -186,9 +186,9 @@ def standardize_text(text):
     text = re.sub(control_char_regex, ' ', text)
     # remove all remaining control characters
     text = ''.join(ch for ch in text if unicodedata.category(ch)[0] != 'C')
-    # replace multiple spaces with single space
-    text = ' '.join(text.split())
-    return text.strip()
+    # standardize all ligature/letter/punctuation characters
+    text = ''.join([unidecode.unidecode(t) if unicodedata.category(t)[0] in 'LP' else t for t in text])
+    return text
 
 def de_emojize(text):
     soup = BeautifulSoup(text, 'html.parser')
@@ -201,8 +201,15 @@ def de_emojize(text):
         soup.span.replace_with(emoji)
     return soup.text
 
+def separate_hashtags(text):
+    text = re.sub(r"#(\w+)#(\w+)", r" #\1 #\2 ", text)
+    return text
+
 def anonymize_text(text, url_filler='<url>', user_filler='@user', email_filler='@email'):
+    # remove wrong @ and #
     text = replace_urls(text, filler=url_filler)
+    text = re.sub(r"@\ ", r"@", text)
+    text = re.sub(r"#\ ", r"#", text)
     text = replace_usernames(text, filler=user_filler)
     text = replace_email(text, filler=email_filler)
     return text
