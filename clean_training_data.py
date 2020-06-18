@@ -219,9 +219,6 @@ def preprocess(text):
 def standardize_text(text):
     # escape HTML symbols
     text = html.unescape(text)
-    # standardize punctuation
-    text = text.translate(transl_table)
-    text = text.replace('…', '...')
     # replace \t, \n and \r characters by a whitespace
     text = re.sub(control_char_regex, ' ', text)
     # remove all remaining control characters
