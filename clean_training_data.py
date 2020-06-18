@@ -151,10 +151,24 @@ def main(seed=42):
     logger.info('Clean labels...')
     df = df.dropna(subset=['majority_vote_category', 'majority_vote_type'])
 
+    # find unambiguous for type and category
+    df['type_is_ambiguous'] = is_ambiguous(df, 'type1', 'type2', 'type3')
+    df['type_merged_is_ambiguous'] = is_ambiguous(df, 'type1_merged', 'type2_merged', 'type3_merged')
+    df['category_is_ambiguous'] = is_ambiguous(df, 'category1', 'category2', 'category3', multi_annotation=True)
+    df['category_merged_is_ambiguous'] = is_ambiguous(df, 'category1_merged', 'category2_merged', 'category3_merged', multi_annotation=True)
+
     train, test = sklearn.model_selection.train_test_split(df, test_size=.2, random_state=seed, shuffle=True)
     logger.info(f'Writing train/test data...')
     write_df(train, 'train', seed)
     write_df(test, 'test', seed)
+
+def is_ambiguous(df, col1, col2, col3, multi_annotation=False):
+    if multi_annotation:
+        # all annotations need to be equal and have only a single annotation
+        return df.apply(lambda row: not (len(row[col1]) == len(row[col2]) == len(row[col3]) == 1) or not (row[col1][0] == row[col2][0] == row[col3][0]), axis=1)
+    else:
+        # all annotations need to be equal
+        return df.apply(lambda row: not (row[col1] == row[col2] == row[col3]), axis=1)
 
 def write_df(df, dataset, seed):
     f_out_folder = os.path.join(input_folder, dataset)
@@ -163,23 +177,29 @@ def write_df(df, dataset, seed):
         shutil.rmtree(f_out_folder)
     os.makedirs(f_out_folder)
     dfs = {}
+    # full datasets
     dfs['type'] = df.rename(columns={'majority_vote_type': 'label'})[['text', 'label']].copy()
     dfs['type_merged'] = df.rename(columns={'majority_vote_type_merged': 'label'})[['text', 'label']].copy()
     dfs['category'] = df.rename(columns={'majority_vote_category': 'label'})[['text', 'label']].copy()
     dfs['category_merged'] = df.rename(columns={'majority_vote_category_merged': 'label'})[['text', 'label']].copy()
+    # unambiguous datasets
+    dfs['type_unambiguous'] = df[~df['type_is_ambiguous']].rename(columns={'majority_vote_type': 'label'})[['text', 'label']].copy()
+    dfs['type_merged_unambiguous'] = df[~df['type_merged_is_ambiguous']].rename(columns={'majority_vote_type_merged': 'label'})[['text', 'label']].copy()
+    dfs['category_unambiguous'] = df[~df['category_is_ambiguous']].rename(columns={'majority_vote_category': 'label'})[['text', 'label']].copy()
+    dfs['category_merged_unambiguous'] = df[~df['category_merged_is_ambiguous']].rename(columns={'majority_vote_category_merged': 'label'})[['text', 'label']].copy()
     for name, df in dfs.items():
         f_out_folder_name = os.path.join(f_out_folder, name)
         if not os.path.isdir(f_out_folder_name):
             os.makedirs(f_out_folder_name)
         f_out = os.path.join(f_out_folder_name, f'all.csv')
-        logger.info(f'Writing file {f_out}...')
+        logger.info(f'Writing {len(df):,} examples to file {f_out}...')
         df.to_csv(f_out, index=False)
         # additionally do train/dev split
         if dataset == 'train':
             train, dev = sklearn.model_selection.train_test_split(df, test_size=.2, random_state=seed, shuffle=True)
             for _type, df_type in zip(['train', 'dev'], [train, dev]):
                 f_out = os.path.join(f_out_folder_name, f'{_type}.csv')
-                logger.info(f'Writing file {f_out}...')
+                logger.info(f'Writing {len(df_type):,} examples to file {f_out}...')
                 df_type.to_csv(f_out, index=False)
 
 def preprocess(text):
