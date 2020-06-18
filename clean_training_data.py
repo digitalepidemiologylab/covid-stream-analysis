@@ -9,6 +9,7 @@ import os
 import warnings
 import sklearn.model_selection
 import unidecode
+import shutil
 
 # mute beautiful soup warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
@@ -150,17 +151,36 @@ def main(seed=42):
     logger.info('Clean labels...')
     df = df.dropna(subset=['majority_vote_category', 'majority_vote_type'])
 
-
     train, test = sklearn.model_selection.train_test_split(df, test_size=.2, random_state=seed, shuffle=True)
     logger.info(f'Writing train/test data...')
-    write_df(train, 'train')
-    write_df(test, 'test')
+    write_df(train, 'train', seed)
+    write_df(test, 'test', seed)
 
-def write_df(df, f_name):
-    f_out = os.path.join(input_folder, f_name)
-    df.to_csv(f_out + '.csv', index=False)
-    df.to_pickle(f_out + '.pkl')
-    df[['text']].to_csv(f_out+'_text_only.csv', index=False)
+def write_df(df, dataset, seed):
+    f_out_folder = os.path.join(input_folder, dataset)
+    # wipe previous data
+    if os.path.isdir(f_out_folder):
+        shutil.rmtree(f_out_folder)
+    os.makedirs(f_out_folder)
+    dfs = {}
+    dfs['type'] = df.rename(columns={'majority_vote_type': 'label'})[['text', 'label']].copy()
+    dfs['type_merged'] = df.rename(columns={'majority_vote_type_merged': 'label'})[['text', 'label']].copy()
+    dfs['category'] = df.rename(columns={'majority_vote_category': 'label'})[['text', 'label']].copy()
+    dfs['category_merged'] = df.rename(columns={'majority_vote_category_merged': 'label'})[['text', 'label']].copy()
+    for name, df in dfs.items():
+        f_out_folder_name = os.path.join(f_out_folder, name)
+        if not os.path.isdir(f_out_folder_name):
+            os.makedirs(f_out_folder_name)
+        f_out = os.path.join(f_out_folder_name, f'all.csv')
+        logger.info(f'Writing file {f_out}...')
+        df.to_csv(f_out, index=False)
+        # additionally do train/dev split
+        if dataset == 'train':
+            train, dev = sklearn.model_selection.train_test_split(df, test_size=.2, random_state=seed, shuffle=True)
+            for _type, df_type in zip(['train', 'dev'], [train, dev]):
+                f_out = os.path.join(f_out_folder_name, f'{_type}.csv')
+                logger.info(f'Writing file {f_out}...')
+                df_type.to_csv(f_out, index=False)
 
 def preprocess(text):
     # demojize
