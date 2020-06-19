@@ -16,7 +16,6 @@ warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
 
 # compile regexes
 control_char_regex = r'[\r\n\t]+'
-transl_table = dict([(ord(x), ord(y)) for x, y in zip( u"‘’´“”–-",  u"'''\"\"--")])
 username_regex = re.compile(r'(^|[^@\w])@(\w{1,15})\b')
 url_regex = re.compile(r'((www\.[^\s]+)|(https?://[^\s]+)|(http?://[^\s]+))')
 email_regex = re.compile(r'[\w\.-]+@[\w\.-]+(\.[\w]+)+')
