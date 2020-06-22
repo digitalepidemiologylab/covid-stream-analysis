@@ -11,8 +11,11 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 
 
-
-def get_parsed_data(usecols=None, s_date=None, e_date=None, read_in_parallel=True, num_files=None):
+def get_parsed_data(
+    usecols=None, s_date=None, e_date=None,
+    read_in_parallel=True, num_files=None,
+    read_data_func=None, verbose=0, final_dropdupl=False
+):
     """Read parsed data
     :param usecols: Only extract certain columns (default: all columns)
     :param s_date: start date to read from (str of format YYYY-MM-dd or datetime obj)
@@ -22,7 +25,7 @@ def get_parsed_data(usecols=None, s_date=None, e_date=None, read_in_parallel=Tru
     """
     def parse_date_from_f_name(f_name):
         f_name = os.path.basename(f_name)
-        date = f_name.split('.')[0][len('parsed_'):]
+        date = f_name.split('_')[-1].split('.')[0]
         if len(date.split('-')) == 3:
             # YYYY-MM-dd format
             return datetime.strptime(date, '%Y-%m-%d')
@@ -63,13 +66,21 @@ def get_parsed_data(usecols=None, s_date=None, e_date=None, read_in_parallel=Tru
     if len(f_names) == 0:
         logger.info('No data files found')
         return pd.DataFrame()
-    parallel = joblib.Parallel(n_jobs=n_jobs, prefer='threads')
+    parallel = joblib.Parallel(
+        n_jobs=n_jobs, prefer='threads', verbose=verbose)
+    if read_data_func is not None:
+        read_data = read_data_func
     read_data_delayed = joblib.delayed(read_data)
     # load data
     logger.info('Reading data...')
     df = parallel(read_data_delayed(f_name) for f_name in tqdm(f_names))
     logger.info('Concatenating...')
     df = pd.concat(df)
+    if final_dropdupl:
+        logger.info(f"Current len: {len(df)}")
+        logger.info("Dropping duplicates...")
+        df = df.drop_duplicates(subset=['user.name'])
+        logger.info(f"Final len: {len(df)}")
     # convert to category
     for col in ['country_code', 'region', 'subregion', 'geo_type', 'lang']:
         if col in df: 

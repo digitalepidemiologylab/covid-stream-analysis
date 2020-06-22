@@ -10,6 +10,7 @@ import warnings
 import sklearn.model_selection
 import unidecode
 import shutil
+# import demoji
 
 # mute beautiful soup warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
@@ -214,6 +215,39 @@ def preprocess(text):
     text = ' '.join(text.split())
     text = text.strip()
     return text
+
+
+def preprocess_fasttext(text):
+    # standardize text
+    text = standardize_text(text)
+    # anonymize
+    text = anonymize_text(
+        text, url_filler='url', user_filler='mention', email_filler='email')
+    # tokenize
+    final_regex = \
+        r'\w+(?:-\w+)+|\w+|' + \
+        r'(?!^$|\s)#(?:\w+(?:-\w+)+|\w+)|[^\w\s]'
+    text = ' '.join(re.findall(final_regex, text))
+    text = text.lower()
+    return text
+
+
+# def preprocess_fasttext_noemoji(text):
+#     # demojize
+#     text = demoji.replace(text, ' ')
+#     # standardize text
+#     text = standardize_text(text)
+#     # anonymize
+#     text = anonymize_text(
+#         text, url_filler='url', user_filler='mention', email_filler='email')
+#     # tokenize
+#     final_regex = \
+#         r'\w+(?:-\w+)+|\w+|' + \
+#         r'(?!^$|\s)#(?:\w+(?:-\w+)+|\w+)|[^\w\s]'
+#     text = ' '.join(re.findall(final_regex, text))
+#     text = text.lower()
+#     return text
+
 
 def standardize_text(text):
     # escape HTML symbols
