@@ -47,29 +47,31 @@ preprocessed = concat_lists(execute(
 df = pd.DataFrame()
 df['text'] = [i for i in preprocessed if i != '']
 
-train, test = sklearn.model_selection.train_test_split(
-    df, test_size=.2, random_state=42, shuffle=True)
+train = df
 
-train, val = sklearn.model_selection.train_test_split(
-    train, test_size=.2, random_state=42, shuffle=True)
+# train, test = sklearn.model_selection.train_test_split(
+#     df, test_size=.2, random_state=42, shuffle=True)
+
+# train, val = sklearn.model_selection.train_test_split(
+#     train, test_size=.2, random_state=42, shuffle=True)
 
 train.to_csv(
-    os.path.join('data/unsupervised_data/fasttext_unsupervised_train.txt'),
+    os.path.join('data/unsupervised_data/emoji/train.txt'),
     index=False, sep=' ', header=False, quoting=csv.QUOTE_NONE,
     quotechar='', escapechar=' '
 )
 
-val.to_csv(
-    os.path.join('data/unsupervised_data/fasttext_unsupervised_val.txt'),
-    index=False, sep=' ', header=False, quoting=csv.QUOTE_NONE,
-    quotechar='', escapechar=' '
-)
+# val.to_csv(
+#     os.path.join('data/unsupervised_data/fasttext_unsupervised_val.txt'),
+#     index=False, sep=' ', header=False, quoting=csv.QUOTE_NONE,
+#     quotechar='', escapechar=' '
+# )
 
-test.to_csv(
-    os.path.join('data/unsupervised_data/fasttext_unsupervised_test.txt'),
-    index=False, sep=' ', header=False, quoting=csv.QUOTE_NONE,
-    quotechar='', escapechar=' '
-)
+# test.to_csv(
+#     os.path.join('data/unsupervised_data/fasttext_unsupervised_test.txt'),
+#     index=False, sep=' ', header=False, quoting=csv.QUOTE_NONE,
+#     quotechar='', escapechar=' '
+# )
 
 print(
     "Time elapsed since start: ",
