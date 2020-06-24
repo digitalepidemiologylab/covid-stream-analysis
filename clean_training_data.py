@@ -22,24 +22,27 @@ url_regex = re.compile(r'((www\.[^\s]+)|(https?://[^\s]+)|(http?://[^\s]+))')
 email_regex = re.compile(r'[\w\.-]+@[\w\.-]+(\.[\w]+)+')
 
 convert_types = {
+        'Individual': 'individual',
         'Individual:Male': 'individual_male',
         'Institution': 'institution',
         'Individual: Other gender or unclear': 'individual_unclear',
         'Unclear': 'unclear',
         'Individual:Female': 'individual_female',
-        '': None
+        None: None
         }
 
 convert_types_merged = {
+        'Individual': 'individual',
         'Individual:Male': 'individual',
         'Institution': 'institution',
         'Individual: Other gender or unclear': 'individual',
         'Unclear': 'unclear',
         'Individual:Female': 'individual',
-        '': None
+        None: None
         }
 
 convert_categories = {
+        'Media': 'media',
         'Other': 'other',
         'Media: News': 'media_news',
         'Media: Other Media': 'media_other',
@@ -58,31 +61,32 @@ convert_categories = {
         'Religion': 'religion',
         'Science: Life Sciences': 'science_lifescience',
         'Porn': 'porn',
-        'Not in English': 'non_english',
-        '': None
+        'Not in English': 'non_english'
         }
 
-convert_merged_categories = {
+convert_categories_merged = {
+        'Media': 'media',
         'Other': 'other',
-        'Media: News': 'media',
-        'Media: Other Media': 'media',
         'Government and Politics': 'politics',
         'Outspoken Political Supporter': 'political_supporter',
-        'Media: Scientific News and Communication': 'media',
         'Art': 'art',
         'Business': 'business',
         'Non-Governmental Organization': 'ngo',
         'Healthcare': 'healthcare',
-        'Science: Social Sciences': 'science',
         'Public Services': 'public_services',
-        'Science: Engineering and Technology': 'science',
+        'Science': 'science',
         'Sport': 'sports',
-        'Science: Other Science': 'science',
         'Religion': 'religion',
-        'Science: Life Sciences': 'science',
         'Porn': 'porn',
         'Not in English': 'non_english',
-        '': None
+        None: None
+        }
+
+convert_gender = {
+        'Individual:Female': 'female',
+        'Individual:Male': 'male',
+        'Individual: Other gender or unclear': 'other',
+        None: None
         }
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
@@ -120,55 +124,114 @@ input_folder = os.path.join('data', 'annotation_data')
 # Porn                                          88
 # Not in English                                25
 
+# columns:
+# --------
+# username
+# bio
+# screenname
+# type1
+# type2
+# type3
+# type4
+# category1
+# category2
+# category3
+# category4
+# workerID1
+# workerID2
+# workerID3
+# workerID4
+# n_followers
+# n_retweets
+# n_covid_tweeting_language
+# coarsetype1
+# coarsetype2
+# coarsetype3
+# coarsetype4
+# estimated_coarse_type
+# estimated_gender
+# coarsecat1
+# coarsecat2
+# coarsecat3
+# coarsecat4
+# estimated_coarse_majority_category
+# estimated_coarse_categories
+
+
 def main(seed=42):
-    f_path = os.path.join(input_folder, 'annotated_users_ten_languages-2.pickle')
+    # f_path = os.path.join(input_folder, 'annotated_users_ten_languages-2.pickle')
+    f_path = os.path.join(input_folder, 'V2_annotated_users.pickle')
     df = pd.read_pickle(f_path)
 
     # Clean bio
-    logger.info('Clean bio text...')
-    df = df[df.bio.apply(lambda s: isinstance(s, str))]
+    logger.info('Clean bio, screen name and username text...')
     df.loc[:, 'text'] = df.bio.apply(preprocess)
+    df.loc[:, 'screenname'] = df.screenname.apply(preprocess)
+    df.loc[:, 'username'] = df.username.apply(preprocess)
     df = df.drop_duplicates(subset=['text'])
 
-    # convert types labels and add merged type
+    # sanitize labels
     logger.info('Sanitize label names...')
-    for col in ['type1', 'type2', 'type3', 'majority_vote_type']:
+    for col in ['type1', 'type2', 'type3', 'type4']:
         df_col = df[col].copy()
+        df_col.loc[(df_col.isna()) | (df_col == '')] = None
         df.loc[:, col] = df_col.apply(lambda s: convert_types[s])
-        df[col + '_merged'] = df_col.apply(lambda s: convert_types_merged[s])
-
-    # convert category labels and add merged category
-    for col in ['category1', 'category2', 'category3', 'majority_vote_category']:
+    for col in ['coarsetype1', 'coarsetype2', 'coarsetype3', 'coarsetype4', 'estimated_coarse_type']:
         df_col = df[col].copy()
-        if col == 'majority_vote_category':
-            df.loc[:, col] = df_col.apply(lambda s: convert_categories[s])
-            df[col + '_merged'] = df_col.apply(lambda s: convert_merged_categories[s])
-        else:
-            df.loc[:, col] = df_col.apply(lambda s: [convert_categories[_s] for _s in s])
-            df[col + '_merged'] = df_col.apply(lambda s: list(set([convert_merged_categories[_s] for _s in s])))
-
-    # clear nan labels
-    logger.info('Clean labels...')
-    df = df.dropna(subset=['majority_vote_category', 'majority_vote_type'])
+        df_col.loc[(df_col.isna()) | (df_col == '')] = None
+        df.loc[:, col] = df_col.apply(lambda s: convert_types_merged[s])
+    for col in ['category1', 'category2', 'category3', 'category4']:
+        df_col = df[col].copy()
+        df.loc[:, col] = df_col.apply(lambda s: list(set([convert_categories[_s] if not pd.isna(_s) and not _s == '' else None for _s in s])))
+    for col in ['coarsecat1', 'coarsecat2', 'coarsecat3', 'coarsecat4']:
+        df_col = df[col].copy()
+        df.loc[:, col] = df_col.apply(lambda s: list(set([convert_categories_merged[_s] if not pd.isna(_s) and not _s == '' else None for _s in s])))
+    for col in [ 'estimated_coarse_majority_category']:
+        df_col = df[col].copy()
+        df_col.loc[(df_col.isna()) | (df_col == '')] = None
+        df.loc[:, col] = df_col.apply(lambda s: convert_categories_merged[s])
+    for col in ['estimated_gender']:
+        df_col = df[col].copy()
+        df_col.loc[(df_col.isna()) | (df_col == '')] = None
+        df.loc[:, col] = df_col.apply(lambda s: convert_gender[s])
 
     # find unambiguous for type and category
-    df['type_is_ambiguous'] = is_ambiguous(df, 'type1', 'type2', 'type3')
-    df['type_merged_is_ambiguous'] = is_ambiguous(df, 'type1_merged', 'type2_merged', 'type3_merged')
-    df['category_is_ambiguous'] = is_ambiguous(df, 'category1', 'category2', 'category3', multi_annotation=True)
-    df['category_merged_is_ambiguous'] = is_ambiguous(df, 'category1_merged', 'category2_merged', 'category3_merged', multi_annotation=True)
+    logger.info(f'Find ambiguous examples...')
+    df['type_is_ambiguous'] = is_ambiguous(df, 'type1', 'type2', 'type3', 'type4')
+    df['type_merged_is_ambiguous'] = is_ambiguous(df, 'coarsetype1', 'coarsetype2', 'coarsetype3', 'coarsetype4')
+    df['category_is_ambiguous'] = is_ambiguous_multi_annotations(df, 'category1', 'category2', 'category3', 'category4')
+    df['category_merged_is_ambiguous'] = is_ambiguous_multi_annotations(df, 'coarsecat1', 'coarsecat2', 'coarsecat3', 'coarsecat4')
 
     train, test = sklearn.model_selection.train_test_split(df, test_size=.2, random_state=seed, shuffle=True)
     logger.info(f'Writing train/test data...')
     write_df(train, 'train', seed)
     write_df(test, 'test', seed)
 
-def is_ambiguous(df, col1, col2, col3, multi_annotation=False):
-    if multi_annotation:
-        # all annotations need to be equal and have only a single annotation
-        return df.apply(lambda row: not (len(row[col1]) == len(row[col2]) == len(row[col3]) == 1) or not (row[col1][0] == row[col2][0] == row[col3][0]), axis=1)
-    else:
-        # all annotations need to be equal
-        return df.apply(lambda row: not (row[col1] == row[col2] == row[col3]), axis=1)
+def is_ambiguous(df, col1, col2, col3, col4):
+    is_ambiguous = []
+    for i, row in df.iterrows():
+        annotations = []
+        for col in [col1, col2, col3, col4]:
+            if not row[col] is None:
+                annotations.append(row[col])
+        if len(annotations) < 3 or len(set(annotations)) != 1:
+            is_ambiguous.append(True) 
+        else:
+            is_ambiguous.append(False) 
+    return is_ambiguous
+
+def is_ambiguous_multi_annotations(df, col1, col2, col3, col4):
+    is_ambiguous = []
+    for i, row in df.iterrows():
+        annotations = []
+        for col in [col1, col2, col3, col4]:
+            if isinstance(row[col], list) and len(row[col]) == 1:
+                annotations.append(row[col][0])
+        if len(annotations) < 3 or len(set(annotations)) != 1:
+            is_ambiguous.append(True) 
+        else:
+            is_ambiguous.append(False) 
+    return is_ambiguous
 
 def write_df(df, dataset, seed):
     f_out_folder = os.path.join(input_folder, dataset)
@@ -178,16 +241,18 @@ def write_df(df, dataset, seed):
     os.makedirs(f_out_folder)
     dfs = {}
     # full datasets
-    dfs['type'] = df.rename(columns={'majority_vote_type': 'label'})[['text', 'label']].copy()
-    dfs['type_merged'] = df.rename(columns={'majority_vote_type_merged': 'label'})[['text', 'label']].copy()
-    dfs['category'] = df.rename(columns={'majority_vote_category': 'label'})[['text', 'label']].copy()
-    dfs['category_merged'] = df.rename(columns={'majority_vote_category_merged': 'label'})[['text', 'label']].copy()
+    dfs['type_merged'] = df.rename(columns={'estimated_coarse_type': 'label'})[['text', 'label']].copy()
+    dfs['category_merged'] = df.rename(columns={'estimated_coarse_majority_category': 'label'})[['text', 'label']].copy()
     # unambiguous datasets
-    dfs['type_unambiguous'] = df[~df['type_is_ambiguous']].rename(columns={'majority_vote_type': 'label'})[['text', 'label']].copy()
-    dfs['type_merged_unambiguous'] = df[~df['type_merged_is_ambiguous']].rename(columns={'majority_vote_type_merged': 'label'})[['text', 'label']].copy()
-    dfs['category_unambiguous'] = df[~df['category_is_ambiguous']].rename(columns={'majority_vote_category': 'label'})[['text', 'label']].copy()
-    dfs['category_merged_unambiguous'] = df[~df['category_merged_is_ambiguous']].rename(columns={'majority_vote_category_merged': 'label'})[['text', 'label']].copy()
+    dfs['type_merged_unambiguous'] = df[~df['type_merged_is_ambiguous']].rename(columns={'estimated_coarse_type': 'label'})[['text', 'label']].copy()
+    dfs['category_merged_unambiguous'] = df[~df['category_merged_is_ambiguous']].rename(columns={'estimated_coarse_majority_category': 'label'})[['text', 'label']].copy()
+    # include screen name/name in text
+    df['text'] = df.apply(lambda row: f'{row.username} {row.screenname} {row.text}', axis=1)
+    dfs['type_merged_with_username'] = df.rename(columns={'estimated_coarse_type': 'label'})[['text', 'label']].copy()
+    dfs['category_merged_with_username'] = df.rename(columns={'estimated_coarse_majority_category': 'label'})[['text', 'label']].copy()
     for name, df in dfs.items():
+        # make sure no nan values slip through
+        df = df.dropna(subset=['label'])
         f_out_folder_name = os.path.join(f_out_folder, name)
         if not os.path.isdir(f_out_folder_name):
             os.makedirs(f_out_folder_name)
@@ -203,6 +268,8 @@ def write_df(df, dataset, seed):
                 df_type.to_csv(f_out, index=False)
 
 def preprocess(text):
+    if not isinstance(text, str):
+        return ''
     # demojize
     text = de_emojize(text)
     # separate hashtags
