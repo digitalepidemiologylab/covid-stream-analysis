@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def get_parsed_data(
     usecols=None, s_date=None, e_date=None,
     read_in_parallel=True, num_files=None,
-    read_data_func=None, verbose=0, final_dropdupl=False
+    read_data_func=None, verbose=0
 ):
     """Read parsed data
     :param usecols: Only extract certain columns (default: all columns)
@@ -76,11 +76,6 @@ def get_parsed_data(
     df = parallel(read_data_delayed(f_name) for f_name in tqdm(f_names))
     logger.info('Concatenating...')
     df = pd.concat(df)
-    if final_dropdupl:
-        logger.info(f"Current len: {len(df)}")
-        logger.info("Dropping duplicates...")
-        df = df.drop_duplicates(subset=['user.name'])
-        logger.info(f"Final len: {len(df)}")
     # convert to category
     for col in ['country_code', 'region', 'subregion', 'geo_type', 'lang']:
         if col in df: 

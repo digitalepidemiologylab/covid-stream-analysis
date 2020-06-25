@@ -15,6 +15,8 @@ from covid_19_keywords import KEYWORDS
 
 logger = logging.getLogger(__name__)
 nlp = spacy.load('en_core_web_sm')
+control_char_regex = r'[\r\n\t]+'
+html_parser = HTMLParser()
 
 class ProcessTweet():
     """Wrapper class for functions to process/modify tweets"""
@@ -22,8 +24,6 @@ class ProcessTweet():
     def __init__(self, tweet=None, map_data=None, gc=None):
         self.tweet = tweet
         self.extended_tweet = self._get_extended_tweet()
-        self.html_parser = HTMLParser()
-        self.control_char_regex = r'[\r\n\t]+'
         self.map_data = map_data
         self.gc = gc
 
@@ -112,7 +112,7 @@ class ProcessTweet():
             text = tweet_obj['extended_tweet']['full_text']
         else:
             text = tweet_obj['text']
-        return self.normalize_str(text)
+        return ProcessTweet.normalize_str(text)
 
     def convert_to_iso_time(self, date):
         ts = pd.to_datetime(date)
@@ -134,7 +134,7 @@ class ProcessTweet():
                 'user.id': self.user_id,
                 'user.screen_name': self.tweet['user']['screen_name'],
                 'user.name': self.tweet['user']['name'],
-                'user.description': self.normalize_str(self.tweet['user']['description']),
+                'user.description': ProcessTweet.normalize_str(self.tweet['user']['description']),
                 'user.timezone': self.user_timezone,
                 'user.location': self.tweet['user']['location'],
                 'user.num_followers': self.tweet['user']['followers_count'],
@@ -155,20 +155,23 @@ class ProcessTweet():
         text = self.get_text()
         return [i for i, keyword in enumerate(KEYWORDS) if keyword.lower() in text]
 
-    def normalize_str(self, s):
+    @staticmethod
+    def normalize_str(s):
         if not s:
             return ''
         if not isinstance(s, str):
             s = str(s)
-        # replace \t, \n and \r characters by a whitespace
-        s = re.sub(self.control_char_regex, ' ', s)
         # replace HTML codes for new line characters
         s = s.replace('&#13;', '').replace('&#10;', '')
-        s = self.html_parser.unescape(s)
+        s = html_parser.unescape(s)
+        # replace \t, \n and \r characters by a whitespace
+        s = re.sub(control_char_regex, ' ', s)
         # remove duplicate whitespaces
         s = ' '.join(s.split())
         # removes all other control characters and the NULL byte (which causes issues when parsing with pandas)
-        return "".join(ch for ch in s if unicodedata.category(ch)[0] != 'C')
+        s = "".join(ch for ch in s if unicodedata.category(ch)[0] != 'C')
+        s = s.strip()
+        return s
 
     def get_geo_info(self):
         """
@@ -287,7 +290,7 @@ class ProcessTweet():
                 'user.id': self.user_id,
                 'user.screen_name': self.tweet['user']['screen_name'],
                 'user.name': self.tweet['user']['name'],
-                'user.description': self.normalize_str(self.tweet['user']['description']),
+                'user.description': ProcessTweet.normalize_str(self.tweet['user']['description']),
                 'user.timezone': self.user_timezone,
                 'user.location': self.tweet['user']['location'],
                 'user.num_followers': self.tweet['user']['followers_count'],
