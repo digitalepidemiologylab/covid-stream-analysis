@@ -8,14 +8,7 @@ from utils.process_tweet import ProcessTweet
 import datetime
 import multiprocessing
 import joblib
-
-import sys
-try:
-    sys.path.append('/mount/SDF/archive/preprocess')
-    from utils.helpers import get_parsed_data as get_parsed_data_archive
-except:
-    print('Archive not found')
-    sys.exit()
+import glob
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
@@ -27,24 +20,39 @@ max_examples_per_file = int(1e6)
 num_files = None
 train_data_path = os.path.join('data', 'annotation_data', 'annotated_users_ten_languages-2.pickle')
 
+def read_data(f_name):
+    """Reads single parquet file"""
+    df = pd.read_parquet(f_name, columns=usecols)
+    return df
+
 def read_covid_data():
+    num_cpus = max(multiprocessing.cpu_count() - 1, 1)
+    parallel = joblib.Parallel(n_jobs=num_cpus, prefer='threads')
     logger.info('Reading covid data')
-    s_date = '2020-05-07'
-    e_date = '2020-06-07'
-    df = get_parsed_data(
-        usecols=usecols, s_date=s_date, e_date=e_date,
-        read_in_parallel=True, num_files=num_files, verbose=verbose)
-    df = df[df.lang == 'en']
+    f_names = glob.glob(os.path.join('data', 'extracted', 'tweets', '*.parquet'))
+    if isinstance(num_files, int):
+        f_names = f_names[:num_files]
+    read_data_delayed = joblib.delayed(read_data)
+    logger.info('Reading data...')
+    df = parallel(read_data_delayed(f_name) for f_name in tqdm(f_names))
+    logger.info('Concatenating...')
+    df = pd.concat(df)
+    df = df[df['lang'] == 'en']
     return df
 
 def read_archive_data():
+    num_cpus = max(multiprocessing.cpu_count() - 1, 1)
+    parallel = joblib.Parallel(n_jobs=num_cpus, prefer='threads')
     logger.info('Reading archive data')
-    s_date = '2019-05-07'
-    e_date = '2019-06-07'
-    df = get_parsed_data_archive(
-        usecols=usecols, s_date=s_date, e_date=e_date,
-        read_in_parallel=True, num_files=num_files, verbose=verbose)
-    df = df[df.lang == 'en']
+    f_names = glob.glob(os.path.join('/', 'mount', 'SDF',  'archive', 'preprocess', 'data', '1_parsed', 'tweets', '*.parquet'))
+    if isinstance(num_files, int):
+        f_names = f_names[:num_files]
+    read_data_delayed = joblib.delayed(read_data)
+    logger.info('Reading data...')
+    df = parallel(read_data_delayed(f_name) for f_name in tqdm(f_names))
+    logger.info('Concatenating...')
+    df = pd.concat(df)
+    df = df[df['lang'] == 'en']
     return df
 
 def write_output_file(df, f_path):
@@ -68,15 +76,15 @@ def main():
     logger.info('Drop NaN')
     df = df.dropna(subset=['user.description'])
     logger.info(f'Remaining len: {len(df):,}')
-    logger.info('Min 3 characters')
-    df = df[df['user.description'].str.len() > 3]
-    logger.info(f'Remaining len: {len(df):,}')
     logger.info('Remove annotation data')
     df_annot = get_annotation_data()
     df = df[~df['user.screen_name'].isin(df_annot)]
     logger.info(f'Remaining len: {len(df):,}')
     logger.info('Standardize text')
     df['user.description'] = df['user.description'].apply(ProcessTweet.normalize_str)
+    logger.info('Min 3 characters')
+    df = df[df['user.description'].str.len() > 3]
+    logger.info(f'Remaining len: {len(df):,}')
 
     # write output files
     num_lines = len(df)
