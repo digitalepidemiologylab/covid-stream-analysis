@@ -18,7 +18,8 @@ usecols = ['user.screen_name', 'user.id', 'user.description', 'lang']
 verbose = 2
 max_examples_per_file = int(1e6)
 num_files = None
-train_data_path = os.path.join('data', 'annotation_data', 'annotated_users_ten_languages-2.pickle')
+train_data_path = os.path.join('..', 'data', 'annotation_data', 'annotated_users_ten_languages-2.pickle')
+en_only = False
 
 def read_data(f_name):
     """Reads single parquet file"""
@@ -29,7 +30,7 @@ def read_covid_data():
     num_cpus = max(multiprocessing.cpu_count() - 1, 1)
     parallel = joblib.Parallel(n_jobs=num_cpus, prefer='threads')
     logger.info('Reading covid data')
-    f_names = glob.glob(os.path.join('data', 'extracted', 'tweets', '*.parquet'))
+    f_names = glob.glob(os.path.join('..', 'data', 'extracted', 'tweets', '*.parquet'))
     if isinstance(num_files, int):
         f_names = f_names[:num_files]
     read_data_delayed = joblib.delayed(read_data)
@@ -37,7 +38,8 @@ def read_covid_data():
     df = parallel(read_data_delayed(f_name) for f_name in tqdm(f_names))
     logger.info('Concatenating...')
     df = pd.concat(df)
-    df = df[df['lang'] == 'en']
+    if en_only:
+        df = df[df.lang == 'en']
     return df
 
 def read_archive_data():
@@ -52,7 +54,8 @@ def read_archive_data():
     df = parallel(read_data_delayed(f_name) for f_name in tqdm(f_names))
     logger.info('Concatenating...')
     df = pd.concat(df)
-    df = df[df['lang'] == 'en']
+    if en_only:
+        df = df[df.lang == 'en']
     return df
 
 def write_output_file(df, f_path):
