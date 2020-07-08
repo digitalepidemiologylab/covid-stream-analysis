@@ -11,7 +11,6 @@ import datetime
 import multiprocessing
 import joblib
 import glob
-import langdetect
 import shutil
 
 logger = logging.getLogger(__name__)

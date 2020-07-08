@@ -93,7 +93,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s]
 logger = logging.getLogger(__name__)
 
 # globals
-input_folder = os.path.join('data', 'annotation_data')
+input_folder = os.path.join('..', 'data', 'annotation_data')
 
 # Data overview
 # types
@@ -159,16 +159,16 @@ input_folder = os.path.join('data', 'annotation_data')
 
 
 def main(seed=42):
-    # f_path = os.path.join(input_folder, 'annotated_users_ten_languages-2.pickle')
-    f_path = os.path.join(input_folder, 'V2_annotated_users.pickle')
+    f_path = os.path.join(input_folder, 'V2_annotated_users_including_original.pickle')
     df = pd.read_pickle(f_path)
 
     # Clean bio
     logger.info('Clean bio, screen name and username text...')
-    df.loc[:, 'text'] = df.bio.apply(preprocess)
+    df.loc[:, 'text_translated'] = df.bio.apply(preprocess)
+    df.loc[:, 'text_original'] = df.bio_original.apply(preprocess)
     df.loc[:, 'screenname'] = df.screenname.apply(preprocess)
     df.loc[:, 'username'] = df.username.apply(preprocess)
-    df = df.drop_duplicates(subset=['text'])
+    df = df.drop_duplicates(subset=['text_translated', 'text_original'])
 
     # sanitize labels
     logger.info('Sanitize label names...')
@@ -240,16 +240,17 @@ def write_df(df, dataset, seed):
         shutil.rmtree(f_out_folder)
     os.makedirs(f_out_folder)
     dfs = {}
-    # full datasets
-    dfs['type_merged'] = df.rename(columns={'estimated_coarse_type': 'label'})[['text', 'label']].copy()
-    dfs['category_merged'] = df.rename(columns={'estimated_coarse_majority_category': 'label'})[['text', 'label']].copy()
-    # unambiguous datasets
-    dfs['type_merged_unambiguous'] = df[~df['type_merged_is_ambiguous']].rename(columns={'estimated_coarse_type': 'label'})[['text', 'label']].copy()
-    dfs['category_merged_unambiguous'] = df[~df['category_merged_is_ambiguous']].rename(columns={'estimated_coarse_majority_category': 'label'})[['text', 'label']].copy()
-    # include screen name/name in text
-    df['text'] = df.apply(lambda row: f'{row.username} {row.screenname} {row.text}', axis=1)
-    dfs['type_merged_with_username'] = df.rename(columns={'estimated_coarse_type': 'label'})[['text', 'label']].copy()
-    dfs['category_merged_with_username'] = df.rename(columns={'estimated_coarse_majority_category': 'label'})[['text', 'label']].copy()
+    for text_col, lang_type in zip(['text_translated', 'text_original'], ['', '_multilang']):
+        # full datasets
+        dfs[f'type_merged{lang_type}'] = df.rename(columns={'estimated_coarse_type': 'label', text_col:  'text'})[['text', 'label']].copy()
+        dfs[f'category_merged{lang_type}'] = df.rename(columns={'estimated_coarse_majority_category': 'label', text_col:  'text'})[['text', 'label']].copy()
+        # unambiguous datasets
+        dfs[f'type_merged_unambiguous{lang_type}'] = df[~df['type_merged_is_ambiguous']].rename(columns={'estimated_coarse_type': 'label', text_col: 'text'})[['text', 'label']].copy()
+        dfs[f'category_merged_unambiguous{lang_type}'] = df[~df['category_merged_is_ambiguous']].rename(columns={'estimated_coarse_majority_category': 'label', text_col:  'text'})[['text', 'label']].copy()
+        # include screen name/name in text
+        df['text_with_username'] = df.apply(lambda row: f'{row.username} {row.screenname} {row[text_col]}', axis=1)
+        dfs[f'type_merged_with_username{lang_type}'] = df.rename(columns={'estimated_coarse_type': 'label', 'text_with_username': 'text'})[['text', 'label']].copy()
+        dfs[f'category_merged_with_username{lang_type}'] = df.rename(columns={'estimated_coarse_majority_category': 'label', 'text_with_username': 'text'})[['text', 'label']].copy()
     for name, df in dfs.items():
         # make sure no nan values slip through
         df = df.dropna(subset=['label'])
@@ -283,39 +284,6 @@ def preprocess(text):
     text = text.strip()
     return text
 
-
-def preprocess_fasttext(text):
-    # standardize text
-    text = standardize_text(text)
-    # anonymize
-    text = anonymize_text(
-        text, url_filler='url', user_filler='mention', email_filler='email')
-    # tokenize
-    final_regex = \
-        r'\w+(?:-\w+)+|\w+|' + \
-        r'(?!^$|\s)#(?:\w+(?:-\w+)+|\w+)|[^\w\s]'
-    text = ' '.join(re.findall(final_regex, text))
-    text = text.lower()
-    return text
-
-
-# def preprocess_fasttext_noemoji(text):
-#     # demojize
-#     text = demoji.replace(text, ' ')
-#     # standardize text
-#     text = standardize_text(text)
-#     # anonymize
-#     text = anonymize_text(
-#         text, url_filler='url', user_filler='mention', email_filler='email')
-#     # tokenize
-#     final_regex = \
-#         r'\w+(?:-\w+)+|\w+|' + \
-#         r'(?!^$|\s)#(?:\w+(?:-\w+)+|\w+)|[^\w\s]'
-#     text = ' '.join(re.findall(final_regex, text))
-#     text = text.lower()
-#     return text
-
-
 def standardize_text(text):
     # escape HTML symbols
     text = html.unescape(text)
@@ -323,8 +291,8 @@ def standardize_text(text):
     text = re.sub(control_char_regex, ' ', text)
     # remove all remaining control characters
     text = ''.join(ch for ch in text if unicodedata.category(ch)[0] != 'C')
-    # standardize all ligature/letter/punctuation characters
-    text = ''.join([unidecode.unidecode(t) if unicodedata.category(t)[0] in 'LP' else t for t in text])
+    # standardize all punctuation characters
+    text = ''.join([unidecode.unidecode(t) if unicodedata.category(t)[0] in 'P' else t for t in text])
     return text
 
 def de_emojize(text):
