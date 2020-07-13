@@ -10,7 +10,6 @@ import warnings
 import sklearn.model_selection
 import unidecode
 import shutil
-# import demoji
 
 # mute beautiful soup warnings
 warnings.filterwarnings("ignore", category=UserWarning, module='bs4')
@@ -291,8 +290,8 @@ def standardize_text(text):
     text = re.sub(control_char_regex, ' ', text)
     # remove all remaining control characters
     text = ''.join(ch for ch in text if unicodedata.category(ch)[0] != 'C')
-    # standardize all punctuation characters
-    text = ''.join([unidecode.unidecode(t) if unicodedata.category(t)[0] in 'P' else t for t in text])
+    # normalize by compatibility
+    text = normalize(text)
     return text
 
 def de_emojize(text):
@@ -334,6 +333,10 @@ def replace_usernames(text, filler='@user'):
     text = text.replace(filler, f' {filler} ')
     text = ' '.join(text.split())
     return text
+
+def normalize(text):
+    """Normalizes unicode strings by compatibilty (in composed form)"""
+    return unicodedata.normalize('NFKC', text)
 
 def replace_urls(text, filler='<url>'):
     # replace other urls by filler
