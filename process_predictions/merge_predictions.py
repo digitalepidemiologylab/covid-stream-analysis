@@ -15,9 +15,9 @@ import pandas as pd
 from tqdm import tqdm
 
 DATA_DIR = os.path.join('..', 'data')
-run_name = 'run_2020_06_29-11-06_1593421617'
-category_run_name = 'predictions_2020-06-29_14-16-05_839209'
-type_run_name = 'predictions_2020-06-29_21-34-40_059411'
+run_name = 'run_2020-07-17_17-37-18_734268_multilang'
+category_run_name = 'predictions_2020-07-17_16-18-23_341756'
+type_run_name = 'predictions_2020-07-17_16-18-29_216072'
 
 def process(f_name, file_paths, output_dir):
     # read all data

@@ -28,6 +28,7 @@ def main():
     logger.info('Reading v2 annotation data')
     f_path = os.path.join(DATA_DIR, 'V2_annotated_users.pickle')
     df = pd.read_pickle(f_path)
+    __import__('pdb').set_trace()
 
     _df = pd.DataFrame()
     for name in [ 'bio', 'username', 'screenname', 'n_retweets', 'covid_tweeting_language']:
