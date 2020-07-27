@@ -8,15 +8,48 @@ test_folder = os.path.join('..', 'data', 'annotation_data', 'test')
 predict_folder = os.path.join('..', '..', 'covid-twitter-bert', 'data', 'predictions')
 output_folder = os.path.join('..', 'text_classification', 'output')
 
+# drwxrwxr-x  3 martin 4.0K Jul 23 21:45 predictions_2020-07-23_19-27-28_359106_category_multilang_no_pt/
+# drwxrwxr-x  3 martin 4.0K Jul 23 21:45 predictions_2020-07-23_19-31-00_051241_type_multilang_no_pt/
+# drwxrwxr-x  3 martin 4.0K Jul 23 21:45 predictions_2020-07-23_19-38-10_753655_category_no_pt/
+# drwxrwxr-x  3 martin 4.0K Jul 23 21:45 predictions_2020-07-23_19-39-52_580919_type_no_pt/
+#
 
 paths = {
+        'category_multilang': {
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-21_20-37-56_033749', 'predictions', 'category_merged_multilang.jsonl'),
+            'test_data': os.path.join(test_folder, 'category_merged_multilang', 'all.csv')
+            },
+        'type_multilang': {
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-21_20-41-43_800266', 'predictions', 'type_merged_multilang.jsonl'),
+            'test_data': os.path.join(test_folder, 'type_merged_multilang', 'all.csv') 
+            },
+        'category_multilang_no_pt': {
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-23_19-27-28_359106_category_multilang_no_pt', 'predictions', 'category_merged_multilang.jsonl'),
+            'test_data': os.path.join(test_folder, 'category_merged_multilang', 'all.csv')
+            },
+        'type_multilang_no_pt': {
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-23_19-31-00_051241_type_multilang_no_pt', 'predictions', 'type_merged_multilang.jsonl'),
+            'test_data': os.path.join(test_folder, 'type_merged_multilang', 'all.csv') 
+            },
+        'category_no_pt': {
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-23_19-38-10_753655_category_no_pt', 'predictions', 'category_merged.jsonl'),
+            'test_data': os.path.join(test_folder, 'category_merged', 'all.csv')
+            },
+        'type_no_pt': {
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-23_19-39-52_580919_type_no_pt', 'predictions', 'type_merged.jsonl'),
+            'test_data': os.path.join(test_folder, 'type_merged', 'all.csv') 
+            },
         'category': {
-            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-06_11-14-15_456223', 'predictions', 'all.jsonl'),
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-22_23-22-04_469275_category', 'predictions', 'category_merged.jsonl'),
             'test_data': os.path.join(test_folder, 'category_merged', 'all.csv')
             },
         'type': {
-            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-06_11-24-24_680200', 'predictions', 'all.jsonl'),
-            'test_data': os.path.join(test_folder, 'type_merged_unambiguous', 'all.csv') 
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-22_23-17-29_770500_type', 'predictions', 'type_merged.jsonl'),
+            'test_data': os.path.join(test_folder, 'type_merged', 'all.csv') 
+            },
+        'category_unambiguous_multilang': {
+            'predict_data': os.path.join(predict_folder, 'predictions_2020-07-24_14-09-30_484704_category_unambiguous_multilang', 'predictions', 'category_merged_unambiguous_multilang.jsonl'),
+            'test_data': os.path.join(test_folder, 'category_merged_unambiguous_multilang', 'all.csv') 
             }
         }
 
@@ -66,10 +99,11 @@ def main():
     for dataset, _p in paths.items():
         df_test = pd.read_csv(_p['test_data'])
         df_predict = pd.read_json(_p['predict_data'], lines=True)
-        df_predict = df_predict.rename(columns={f'{dataset}': 'prediction'})
+        df_predict = df_predict.rename(columns={'label': 'prediction'})
         df = pd.concat([df_test, df_predict], axis=1)
         scores = performance_metrics(df.label, df.prediction)
-        f_output = os.path.join(output_folder, f'test_{dataset}')
+        run_name = f'test_{dataset}'
+        f_output = os.path.join(output_folder, run_name)
         if os.path.isdir(f_output):
             shutil.rmtree(f_output)
         os.makedirs(f_output)
@@ -77,6 +111,8 @@ def main():
         with open(os.path.join(f_output, 'test_output.json'), 'w') as f:
             json.dump(scores, f, indent=4)
         df[['text', 'label', 'prediction']].to_csv(os.path.join(f_output, 'test_output.csv'))
+        with open(os.path.join(f_output, 'run_config.json'), 'w') as f:
+            json.dump({'name': run_name}, f, indent=4)
 
 if __name__ == "__main__":
     main()
