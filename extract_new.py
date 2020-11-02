@@ -22,7 +22,7 @@ import ray
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)-5.5s] [%(name)-12.12s]: %(message)s')
 logger = logging.getLogger(__name__)
-EXTRACT_DIR = os.path.join('data', 'extracted')
+EXTRACT_DIR = os.path.join('data', 'extracted_new')
 OUTPUT_DIR = os.path.join(EXTRACT_DIR, 'tweets')
 PRELIM_DIR = os.path.join(EXTRACT_DIR, 'preliminary')
 OTHER_DIR = os.path.join(EXTRACT_DIR, 'other')
@@ -160,12 +160,6 @@ def main(no_parallel=False, interval='hour', extract_retweets=False, extract_quo
                     continue
                 if 'id' not in tweet:
                     continue
-                tweet_id = tweet['id_str']
-                if tweet_id in originals:
-                    # skip duplicates
-                    continue
-                # flag tweet ID as "used"
-                originals[tweet_id] = True
                 # extract top-level tweet
                 pt = ProcessTweet(tweet=tweet)
                 if ((extract_retweets and pt.is_retweet)                              # extract retweets (optional)
@@ -173,12 +167,6 @@ def main(no_parallel=False, interval='hour', extract_retweets=False, extract_quo
                         or (not pt.is_retweet and not pt.has_quote)):                 # always extract original tweets which are neither retweets nor quotes
                     extracted_tweet = pt.extract()
                     write_to_file(extracted_tweet)
-                # add interaction counts
-                if pt.is_reply:
-                    if pt.replied_status_id in replies_counts:
-                        replies_counts[pt.replied_status_id] += 1
-                    else:
-                        replies_counts[pt.replied_status_id] = 1
                 # extract subtweets
                 if pt.has_quote:
                     pt_quote = ProcessTweet(tweet=tweet['quoted_status'])
@@ -188,22 +176,12 @@ def main(no_parallel=False, interval='hour', extract_retweets=False, extract_quo
                             quote_counts[pt_quote.id] += 1
                         else:
                             quote_counts[pt_quote.id] = 1
-                    if pt_quote.id not in originals:
-                        # extract original status
-                        originals[pt_quote.id] = True
-                        extracted_tweet = pt_quote.extract()
-                        write_to_file(extracted_tweet)
                 if pt.is_retweet:
                     pt_retweet = ProcessTweet(tweet=tweet['retweeted_status'])
                     if pt_retweet.id in retweet_counts:
                         retweet_counts[pt_retweet.id] += 1
                     else:
                         retweet_counts[pt_retweet.id] = 1
-                    if pt_retweet.id not in originals:
-                        # extract original status
-                        originals[pt_retweet.id] = True
-                        extracted_tweet = pt_retweet.extract()
-                        write_to_file(extracted_tweet)
             f.close()
 
     # setup
@@ -247,12 +225,16 @@ def main(no_parallel=False, interval='hour', extract_retweets=False, extract_quo
     # run
     logger.info('Extract tweets...')
     extract_tweets_delayed = joblib.delayed(extract_tweets)
-    parallel(extract_tweets_delayed(key, f_names, interval) for key, f_names in tqdm(f_names.items()))
+    # parallel(extract_tweets_delayed(key, f_names, interval) for key, f_names in tqdm(f_names.items()))
 
     # merge interaction counts
     logger.info('Merging all interaction counts...')
-    interaction_counts = merge_interaction_counts()
-    interaction_counts_fname = dump_interaction_counts(interaction_counts)
+    # interaction_counts = merge_interaction_counts()
+    # interaction_counts_fname = dump_interaction_counts(interaction_counts)
+
+    with open('/tmp/interaction_counts_2020-10-29T04:51:36.445988.pkl', 'rb') as f:
+        interaction_counts = pickle.load(f)
+    interaction_counts = pd.DataFrame(interaction_counts)
 
     # store counts as shared memory
     data_id = ray.put(interaction_counts)

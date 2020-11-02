@@ -119,7 +119,6 @@ class ProcessTweet():
         return ts.isoformat()
 
     def extract(self, tweet_type='original'):
-        geo_obj = self.get_geo_info()
         return {
                 'id': self.id,
                 'text': self.get_text(),
@@ -147,8 +146,7 @@ class ProcessTweet():
                 'is_retweet': self.is_retweet,
                 'has_quote': self.has_quote,
                 'is_reply': self.is_reply,
-                'matched_keywords': self.matched_keywords(),
-                **geo_obj
+                'matched_keywords': self.matched_keywords()
                 }
 
     def matched_keywords(self):
